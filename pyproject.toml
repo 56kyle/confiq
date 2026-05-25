@@ -1,6 +1,6 @@
 [project]
 name = "confiq"
-version = "0.0.0"
+version = "0.1.0"
 description = "confiq"
 authors = [
     { name = "Kyle Oliver", email = "56kyleoliver@gmail.com" },
