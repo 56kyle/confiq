@@ -1,6 +1,6 @@
 [project]
 name = "confiq"
-version = "0.0.0"
+version = "0.1.0"
 description = "confiq"
 authors = [
     { name = "Kyle Oliver", email = "56kyleoliver@gmail.com" },
@@ -26,8 +26,9 @@ classifiers = [
 dependencies = [
     "loguru>=0.7.3",
     "platformdirs>=4.3.8",
+    "python-dotenv>=1.2.2",
     "typer>=0.15.4",
-    "typing-extensions>=4.13.2"
+    "typing-extensions>=4.13.2",
 ]
 
 [dependency-groups]
