@@ -41,9 +41,6 @@ class EnvSource(AbstractConfigSource):
 
 
 def _parse_dotenv_file(dotenv: Any) -> dict[str, str]:
-    try:
-        from dotenv import dotenv_values
-    except ImportError:
-        from dotenv import dotenv_values  # python-dotenv is a hard dep
+    from dotenv import dotenv_values
     path = Path(dotenv) if not isinstance(dotenv, Path) else dotenv
     return dict(dotenv_values(path))

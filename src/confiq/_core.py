@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from types import MappingProxyType
 from typing import Any, Callable, Generic, Iterator, TypeVar
 
+from confiq._hookspecs import hookimpl
 from confiq._locks import ReentrancyGuard
 from confiq._merge import _freeze, deep_merge
 from confiq._plugins import _make_plugin_manager, _register_optional_loaders
@@ -15,6 +16,15 @@ from confiq._snapshot import ConfigSnapshot
 T = TypeVar("T")
 
 _MISSING = object()
+
+
+class _OnReloadAdapter:
+    def __init__(self, fn: Callable[[Any, Any], None]) -> None:
+        self._fn = fn
+
+    @hookimpl
+    def confiq_on_reload(self, old_model: Any, new_model: Any) -> None:
+        self._fn(old_model, new_model)
 
 
 class Config(Generic[T]):
@@ -173,14 +183,7 @@ class Config(Generic[T]):
 
     def on_reload(self, fn: Callable[[Any, Any], None]) -> Callable[[Any, Any], None]:
         """Decorator: register a free function as an on_reload hookimpl."""
-        from confiq._hookspecs import hookimpl
-
-        class _Adapter:
-            @hookimpl
-            def confiq_on_reload(self, old_model: Any, new_model: Any) -> None:
-                fn(old_model, new_model)
-
-        self._pm.register(_Adapter(), name=f"on_reload:{fn.__qualname__}")
+        self._pm.register(_OnReloadAdapter(fn), name=f"on_reload:{fn.__qualname__}")
         return fn
 
     def reload(self) -> ConfigSnapshot[T]:
@@ -220,7 +223,7 @@ class Config(Generic[T]):
         model = self._adapter.validate(merged) if self._adapter is not None else None
         new_snap: ConfigSnapshot[T] = ConfigSnapshot(
             model=model,
-            raw=MappingProxyType(_freeze(merged)),  # type: ignore[arg-type]
+            raw=_freeze(merged),  # type: ignore[arg-type]
             version=old.version + 1,
             sources=tuple(sources_used),
         )
@@ -234,9 +237,13 @@ class Config(Generic[T]):
         def _run() -> None:
             try:
                 self._pm.hook.confiq_on_reload(old_model=old_model, new_model=new_model)
-            except Exception:
-                import traceback
-                traceback.print_exc()
+            except Exception as exc:
+                import warnings
+                warnings.warn(
+                    f"confiq: on_reload hook raised {type(exc).__name__}: {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
         threading.Thread(target=_run, daemon=True, name="confiq-notify").start()
 

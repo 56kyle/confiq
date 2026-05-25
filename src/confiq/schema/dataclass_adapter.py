@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import fields, is_dataclass
+from dataclasses import MISSING, fields, is_dataclass
 from typing import Any
 
 
@@ -23,7 +23,4 @@ class DataclassAdapter:
         return self.dc_cls(**{k: v for k, v in data.items() if k in accepted})
 
     def defaults(self) -> dict[str, Any]:
-        try:
-            return {f.name: f.default for f in fields(self.dc_cls) if f.default is not f.default_factory}  # type: ignore[misc]
-        except Exception:
-            return {}
+        return {f.name: f.default for f in fields(self.dc_cls) if f.default is not MISSING}
