@@ -26,10 +26,20 @@ classifiers = [
 dependencies = [
     "loguru>=0.7.3",
     "platformdirs>=4.3.8",
+    "pluggy>=1.5",
+    "pydantic>=2.5",
     "python-dotenv>=1.2.2",
     "typer>=0.15.4",
     "typing-extensions>=4.13.2",
 ]
+
+[project.optional-dependencies]
+yaml   = ["pyyaml>=6.0"]
+toml   = ["tomli>=2.0; python_version<'3.11'"]
+watch  = ["watchdog>=4.0"]
+click  = ["click>=8.1"]
+common = ["confiq[yaml,toml,watch]"]
+all    = ["confiq[yaml,toml,watch,click]"]
 
 [dependency-groups]
 dev = [
@@ -54,6 +64,14 @@ docs = [
     "sphinx-tabs>=3.4.7",
     "sphinxcontrib-typer>=0.5.1",
 ]
+
+[project.entry-points."confiq.sources"]
+file     = "confiq.sources.file:FileSource"
+env      = "confiq.sources.env:EnvSource"
+argparse = "confiq.sources.argparse_source:ArgparseSource"
+dict     = "confiq.sources.dict_source:DictSource"
+
+[project.entry-points.confiq]
 
 [project.urls]
 Homepage = "https://github.com/56kyle/confiq"
