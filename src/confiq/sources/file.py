@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Config source that loads a single file via pluggy hook dispatch."""
+
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +12,12 @@ if TYPE_CHECKING:
 
 
 class FileSource(AbstractConfigSource):
+    """Loads a config file using the registered loader for its suffix.
+
+    Suffix is resolved from `file_format` if given, otherwise from the path extension.
+    Raises `ValueError` for unhandled suffixes; raises `FileNotFoundError` for missing required files.
+    """
+
     protocol = "file"
     priority = PRIORITY_FILE
 
@@ -31,6 +39,10 @@ class FileSource(AbstractConfigSource):
         self._pm = plugin_manager
 
     def load(self) -> dict[str, Any]:
+        """Read and parse the file, returning its contents as a dict.
+
+        Returns `{}` when the file is absent and `required=False`.
+        """
         if not self.path.exists():
             if self.required:
                 raise FileNotFoundError(self.path)
@@ -49,8 +61,10 @@ class FileSource(AbstractConfigSource):
         return result
 
     def supports_watch(self) -> bool:
+        """Returns True when `watch=True` was passed at construction."""
         return self.watch_enabled
 
     def watch(self, on_change: Any) -> Any:
+        """Attach a filesystem watcher; calls `on_change` whenever the file changes."""
         from confiq._watch import watch_path
         return watch_path(self.path, on_change)

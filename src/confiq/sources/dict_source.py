@@ -12,8 +12,10 @@ class DictSource(AbstractConfigSource):
     priority = PRIORITY_FILE
 
     def __init__(self, data: dict[str, Any], *, priority: int | None = None) -> None:
+        """Wrap `data`, optionally overriding the default priority."""
         super().__init__(priority=priority)
         self._data = data
 
     def load(self) -> dict[str, Any]:
+        """Return the wrapped dict unchanged."""
         return dict(self._data)

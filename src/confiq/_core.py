@@ -63,6 +63,12 @@ class Config(Generic[T]):
         *,
         cast: Any = None,
     ) -> Any:
+        """Dotted-path read from the current snapshot; lock-free.
+
+        Applies `cast` to the leaf if given. Raises `KeyError` when the path is absent
+        and no default is provided. An active `override()` context takes precedence for
+        the requested key. Returns the full model when `dotted` is None.
+        """
         snap = self._current  # single LOAD_ATTR — lock-free per ADR 0001
         override = self._override_var.get()
         if override is not None and dotted:
@@ -80,10 +86,15 @@ class Config(Generic[T]):
         return snap.get(dotted, default, cast=cast)
 
     def snapshot(self) -> ConfigSnapshot[T]:
+        """Return the current `ConfigSnapshot`; no lock needed."""
         return self._current
 
     # ─── fluent registration API
     def bind(self, schema: type[T]) -> Config[T]:
+        """Set the schema type and adapter, then rebuild immediately.
+
+        Raises `TypeError` if no registered adapter recognises the schema. Returns `self`.
+        """
         with self._lock, self._reentry:
             self._assert_unfrozen()
             self._schema = schema
@@ -94,6 +105,7 @@ class Config(Generic[T]):
         return self  # type: ignore[return-value]
 
     def add_source(self, src: Any) -> Config[T]:
+        """Append the source, re-sort by priority, rebuild, and attach a watch when `src.watch_enabled` is true. Returns `self`."""
         with self._lock, self._reentry:
             self._assert_unfrozen()
             self._sources.append(src)
@@ -103,6 +115,7 @@ class Config(Generic[T]):
         return self
 
     def reprioritize_sources(self, key: Callable[[Any], Any]) -> Config[T]:
+        """Re-sort the source list in-place using `key`, then rebuild. Returns `self`."""
         with self._lock, self._reentry:
             self._assert_unfrozen()
             self._sources.sort(key=key)
@@ -118,6 +131,11 @@ class Config(Generic[T]):
         file_format: str | None = None,
         priority: int | None = None,
     ) -> Config[T]:
+        """Convenience wrapper around `FileSource`.
+
+        `required=False` silently returns `{}` when the file is absent; `watch=True`
+        attaches a filesystem watcher. Returns `self`.
+        """
         from confiq.sources.file import FileSource
 
         return self.add_source(
@@ -137,6 +155,7 @@ class Config(Generic[T]):
         *,
         priority: int | None = None,
     ) -> Config[T]:
+        """Wrap `data` in a `DictSource`; canonical primitive for tests and inline defaults. Returns `self`."""
         from confiq.sources.dict_source import DictSource
 
         return self.add_source(DictSource(data, priority=priority))
@@ -149,6 +168,12 @@ class Config(Generic[T]):
         dotenv: Any = None,
         priority: int | None = None,
     ) -> Config[T]:
+        """Wrap `EnvSource`.
+
+        `delimiter` (default `__`) splits env-var names into nested keys; when `dotenv`
+        is set its values are merged under the live environment, with live env winning.
+        Returns `self`.
+        """
         from confiq.sources.env import EnvSource
 
         return self.add_source(
@@ -162,6 +187,11 @@ class Config(Generic[T]):
         argv: list[str] | None = None,
         priority: int | None = None,
     ) -> Config[T]:
+        """Wrap `ArgparseSource`.
+
+        Pass a parsed `argparse.Namespace` or a raw `argv` list using `--key.sub=value`
+        dot syntax; defaults to `sys.argv[1:]` when both are None. Returns `self`.
+        """
         from confiq.sources.argparse_source import ArgparseSource
 
         return self.add_source(
@@ -169,6 +199,7 @@ class Config(Generic[T]):
         )
 
     def add_defaults_from_schema(self) -> Config[T]:
+        """Add a `DefaultsSource` backed by the bound schema adapter as the lowest-priority layer. Returns `self`."""
         from confiq.sources.defaults import DefaultsSource
 
         return self.add_source(DefaultsSource(self._adapter))
@@ -176,9 +207,11 @@ class Config(Generic[T]):
     # ─── plugin / subscriber API
 
     def register_plugin(self, plugin: Any, name: str | None = None) -> None:
+        """Register a pluggy plugin with this config's plugin manager."""
         self._pm.register(plugin, name=name)
 
     def unregister_plugin(self, plugin_or_name: Any) -> None:
+        """Unregister a plugin by object or name."""
         self._pm.unregister(plugin_or_name)
 
     def on_reload(self, fn: Callable[[Any, Any], None]) -> Callable[[Any, Any], None]:
@@ -187,6 +220,7 @@ class Config(Generic[T]):
         return fn
 
     def reload(self) -> ConfigSnapshot[T]:
+        """Force a full rebuild under the write lock. Returns the new `ConfigSnapshot`."""
         with self._lock, self._reentry:
             return self._rebuild_locked()
 
@@ -202,6 +236,7 @@ class Config(Generic[T]):
             self._override_var.reset(token)
 
     def freeze(self) -> Config[T]:
+        """Mark this instance immutable; subsequent mutating calls raise `RuntimeError`. Returns `self`."""
         self._frozen = True
         return self
 

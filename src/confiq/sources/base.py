@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Base protocol and abstract class for all config sources."""
+
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
@@ -19,9 +21,15 @@ class ConfigSource(Protocol):
     protocol: ClassVar[str]
     priority: int
 
-    def load(self) -> JSONDict: ...
-    def supports_watch(self) -> bool: ...
-    def watch(self, on_change: Any) -> Any: ...
+    def load(self) -> JSONDict:
+        """Return the config values this source provides as a flat or nested dict."""
+        ...
+    def supports_watch(self) -> bool:
+        """Return True if this source can push change notifications."""
+        ...
+    def watch(self, on_change: Any) -> Any:
+        """Begin watching for changes; call `on_change()` on each detected change."""
+        ...
 
 
 class AbstractConfigSource(ABC):
@@ -31,15 +39,19 @@ class AbstractConfigSource(ABC):
     priority: int = PRIORITY_FILE
 
     def __init__(self, *, priority: int | None = None) -> None:
+        """Override `priority` for this instance when `priority` is not None."""
         if priority is not None:
             self.priority = priority
 
     @abstractmethod
     def load(self) -> JSONDict:
+        """Return this source's config values; must be overridden by subclasses."""
         raise NotImplementedError
 
     def supports_watch(self) -> bool:
+        """Returns False; override to enable filesystem or remote watching."""
         return False
 
     def watch(self, on_change: Any) -> None:
+        """No-op; override alongside `supports_watch` to implement watching."""
         return None

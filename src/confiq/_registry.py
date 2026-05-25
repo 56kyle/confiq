@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Source-protocol registry and lazy-import factory, mirroring the fsspec pattern."""
+
 import importlib
 import types
 import warnings
@@ -54,7 +56,8 @@ known_implementations: dict[str, dict[str, str]] = {
 }
 
 
-class MissingDependencyError(ImportError): ...
+class MissingDependencyError(ImportError):
+    """Raised when a known protocol's optional extra dependency is not installed."""
 
 
 def register_implementation(
@@ -64,6 +67,7 @@ def register_implementation(
     clobber: bool = False,
     errtxt: str | None = None,
 ) -> None:
+    """Register a protocol name to a class or dotted import string. Raises `ValueError` on conflict with a different class unless `clobber=True`; re-registering the identical class is silently idempotent."""
     if name in _registry and not clobber:
         if _registry[name] is not cls:
             raise ValueError(f"{name!r} already registered")
@@ -78,6 +82,7 @@ def register_implementation(
 
 
 def get_source_class(protocol: str) -> type:
+    """Resolve a protocol string to its class, lazily importing from `known_implementations` on first access. Raises `KeyError` for unknown protocols; raises `MissingDependencyError` for known but uninstalled extras."""
     if protocol in _registry:
         return _registry[protocol]
     if protocol in known_implementations:

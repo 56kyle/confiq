@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Config source that reads environment variables."""
+
 import os
 from pathlib import Path
 from typing import Any
@@ -9,6 +11,11 @@ from confiq.sources._coerce import parse_env_value, set_nested_path
 
 
 class EnvSource(AbstractConfigSource):
+    """Reads `os.environ`, strips the configured prefix, and splits on `delimiter` to produce nested keys.
+
+    When `dotenv` is given, its values are merged under the live environment (live env wins).
+    """
+
     protocol = "env"
     priority = PRIORITY_ENV
 
@@ -26,6 +33,7 @@ class EnvSource(AbstractConfigSource):
         self.dotenv = dotenv
 
     def load(self) -> dict[str, Any]:
+        """Return env-var values as a nested dict after prefix-stripping and delimiter-splitting."""
         env = dict(os.environ)
         if self.dotenv is not None:
             env = {**_parse_dotenv_file(self.dotenv), **env}

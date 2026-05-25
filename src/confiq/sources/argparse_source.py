@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Config source that reads from argparse namespaces or raw argv."""
+
 import sys
 from typing import Any
 
@@ -8,6 +10,11 @@ from confiq.sources._coerce import parse_env_value, set_nested_path
 
 
 class ArgparseSource(AbstractConfigSource):
+    """Reads CLI arguments from a parsed `argparse.Namespace` or a raw `argv` list using `--key.sub.path=value` dot syntax.
+
+    Defaults to `sys.argv[1:]` when both `namespace` and `argv` are None.
+    """
+
     protocol = "argparse"
     priority = PRIORITY_CLI
 
@@ -23,6 +30,7 @@ class ArgparseSource(AbstractConfigSource):
         self._argv = sys.argv[1:] if (namespace is None and argv is None) else argv
 
     def load(self) -> dict[str, Any]:
+        """Return CLI arguments as a nested dict, using underscore-split for a namespace or dot-path parsing for raw argv."""
         if self._ns is not None:
             return _explode_dots(vars(self._ns))
         return _parse_dotted(self._argv or [])

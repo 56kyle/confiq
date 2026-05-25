@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Immutable config state container published after each rebuild."""
+
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Generic, TypeVar
@@ -28,6 +30,7 @@ class ConfigSnapshot(Generic[T]):
         *,
         cast: Any = None,
     ) -> Any:
+        """Traverse `raw` by dotted path and return the leaf, applying `cast` if given. Raises `KeyError` when the path is absent and no `default` is provided."""
         node: Any = self.raw
         for part in dotted.split("."):
             if isinstance(node, (dict, MappingProxyType)) and part in node:
