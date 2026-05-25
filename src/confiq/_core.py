@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+import contextvars
+import copy
+import threading
+from contextlib import contextmanager
+from types import MappingProxyType
+from typing import Any, Callable, Generic, Iterator, TypeVar
+
+from confiq._locks import ReentrancyGuard
+from confiq._merge import _freeze, deep_merge
+from confiq._plugins import _make_plugin_manager, _register_optional_loaders
+from confiq._snapshot import ConfigSnapshot
+
+T = TypeVar("T")
+
+_MISSING = object()
+
+
+class Config(Generic[T]):
+    """The one Config to rule them all. Import as `from confiq import config`.
+
+    See docs/design.md §4.5 and ADR 0001.
+    """
+
+    def __init__(self) -> None:
+        self._sources: list[Any] = []
+        self._schema: type[T] | None = None
+        self._adapter: Any = None
+        self._lock = threading.Lock()
+        self._reentry = ReentrancyGuard()
+        self._current: ConfigSnapshot[T] = ConfigSnapshot(
+            model=None,
+            raw=MappingProxyType({}),
+            version=0,
+            sources=(),
+        )
+        self._pm = _make_plugin_manager()
+        _register_optional_loaders(self._pm)
+        self._frozen = False
+        # Per-instance ContextVar so multiple Config() objects don't share override
+        # state. See ADR 0001.
+        self._override_var: contextvars.ContextVar[dict[str, Any] | None] = (
+            contextvars.ContextVar(f"confiq_override_{id(self)}", default=None)
+        )
+
+    # ─── public read API (LOCK-FREE) ─────────────────────────────────────────
+
+    def get(
+        self,
+        dotted: str | None = None,
+        default: Any = _MISSING,
+        *,
+        cast: Any = None,
+    ) -> Any:
+        snap = self._current  # single LOAD_ATTR — lock-free per ADR 0001
+        override = self._override_var.get()
+        if override is not None and dotted:
+            try:
+                node: Any = override
+                for part in dotted.split("."):
+                    node = node[part]
+                return cast(node) if cast else node
+            except (KeyError, TypeError):
+                pass
+        if dotted is None:
+            return snap.model
+        if default is _MISSING:
+            return snap.get(dotted, cast=cast)
+        return snap.get(dotted, default, cast=cast)
+
+    def snapshot(self) -> ConfigSnapshot[T]:
+        return self._current
+
+    # ─── fluent registration API
+    def bind(self, schema: type[T]) -> Config[T]:
+        with self._lock, self._reentry:
+            self._assert_unfrozen()
+            self._schema = schema
+            self._adapter = self._pm.hook.confiq_get_schema_adapter(schema=schema)
+            if self._adapter is None:
+                raise TypeError(f"No registered adapter handles {schema!r}")
+            self._rebuild_locked()
+        return self  # type: ignore[return-value]
+
+    def add_source(self, src: Any) -> Config[T]:
+        with self._lock, self._reentry:
+            self._assert_unfrozen()
+            self._sources.append(src)
+            self._sources.sort(key=lambda s: s.priority)
+            self._rebuild_locked()
+            self._maybe_attach_watch(src)
+        return self
+
+    def reprioritize_sources(self, key: Callable[[Any], Any]) -> Config[T]:
+        with self._lock, self._reentry:
+            self._assert_unfrozen()
+            self._sources.sort(key=key)
+            self._rebuild_locked()
+        return self
+
+    def add_file(
+        self,
+        path: Any,
+        *,
+        required: bool = True,
+        watch: bool = False,
+        file_format: str | None = None,
+        priority: int | None = None,
+    ) -> Config[T]:
+        from confiq.sources.file import FileSource
+
+        return self.add_source(
+            FileSource(
+                path,
+                required=required,
+                watch=watch,
+                file_format=file_format,
+                priority=priority,
+                plugin_manager=self._pm,
+            )
+        )
+
+    def add_dict(
+        self,
+        data: dict[str, Any],
+        *,
+        priority: int | None = None,
+    ) -> Config[T]:
+        from confiq.sources.dict_source import DictSource
+
+        return self.add_source(DictSource(data, priority=priority))
+
+    def add_env(
+        self,
+        *,
+        prefix: str = "",
+        delimiter: str = "__",
+        dotenv: Any = None,
+        priority: int | None = None,
+    ) -> Config[T]:
+        from confiq.sources.env import EnvSource
+
+        return self.add_source(
+            EnvSource(prefix=prefix, delimiter=delimiter, dotenv=dotenv, priority=priority)
+        )
+
+    def add_argparse(
+        self,
+        namespace: Any = None,
+        *,
+        argv: list[str] | None = None,
+        priority: int | None = None,
+    ) -> Config[T]:
+        from confiq.sources.argparse_source import ArgparseSource
+
+        return self.add_source(
+            ArgparseSource(namespace=namespace, argv=argv, priority=priority)
+        )
+
+    def add_defaults_from_schema(self) -> Config[T]:
+        from confiq.sources.defaults import DefaultsSource
+
+        return self.add_source(DefaultsSource(self._adapter))
+
+    # ─── plugin / subscriber API
+
+    def register_plugin(self, plugin: Any, name: str | None = None) -> None:
+        self._pm.register(plugin, name=name)
+
+    def unregister_plugin(self, plugin_or_name: Any) -> None:
+        self._pm.unregister(plugin_or_name)
+
+    def on_reload(self, fn: Callable[[Any, Any], None]) -> Callable[[Any, Any], None]:
+        """Decorator: register a free function as an on_reload hookimpl."""
+        from confiq._hookspecs import hookimpl
+
+        class _Adapter:
+            @hookimpl
+            def confiq_on_reload(self, old_model: Any, new_model: Any) -> None:
+                fn(old_model, new_model)
+
+        self._pm.register(_Adapter(), name=f"on_reload:{fn.__qualname__}")
+        return fn
+
+    def reload(self) -> ConfigSnapshot[T]:
+        with self._lock, self._reentry:
+            return self._rebuild_locked()
+
+    @contextmanager
+    def override(self, **patches: Any) -> Iterator[Config[T]]:
+        """contextvars-based per-task override; safe for asyncio and threads."""
+        prev = self._override_var.get()
+        new = deep_merge(copy.deepcopy(prev) if prev else {}, patches)
+        token = self._override_var.set(new)
+        try:
+            yield self
+        finally:
+            self._override_var.reset(token)
+
+    def freeze(self) -> Config[T]:
+        self._frozen = True
+        return self
+
+    # ─── internals (lock is held) ─────────────────────────────────────────────
+
+    def _rebuild_locked(self) -> ConfigSnapshot[T]:
+        old = self._current
+        merged: dict[str, Any] = {}
+        sources_used: list[str] = []
+        for src in self._sources:
+            self._pm.hook.confiq_before_load(source=src)
+            merged = deep_merge(merged, src.load())
+            sources_used.append(src.protocol)
+
+        transformed = self._pm.hook.confiq_after_merge(merged=merged)
+        if transformed is not None:
+            merged = transformed
+
+        model = self._adapter.validate(merged) if self._adapter is not None else None
+        new_snap: ConfigSnapshot[T] = ConfigSnapshot(
+            model=model,
+            raw=MappingProxyType(_freeze(merged)),  # type: ignore[arg-type]
+            version=old.version + 1,
+            sources=tuple(sources_used),
+        )
+
+        self._pm.hook.confiq_before_publish(old_snapshot=old, new_snapshot=new_snap)
+        self._current = new_snap  # atomic reference swap — ADR 0001
+        self._enqueue_notify(old.model, new_snap.model)
+        return new_snap
+
+    def _enqueue_notify(self, old_model: Any, new_model: Any) -> None:
+        def _run() -> None:
+            try:
+                self._pm.hook.confiq_on_reload(old_model=old_model, new_model=new_model)
+            except Exception:
+                import traceback
+                traceback.print_exc()
+
+        threading.Thread(target=_run, daemon=True, name="confiq-notify").start()
+
+    def _assert_unfrozen(self) -> None:
+        if self._frozen:
+            raise RuntimeError(
+                "This Config instance is frozen. Construct a fresh Config() for mutation."
+            )
+
+    def _maybe_attach_watch(self, src: Any) -> None:
+        if not getattr(src, "watch_enabled", False):
+            return
+        if not src.supports_watch():
+            return
+        src.watch(self.reload)
