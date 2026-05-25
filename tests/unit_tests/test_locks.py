@@ -1,4 +1,5 @@
 import threading
+from contextlib import ExitStack
 
 import pytest
 
@@ -13,10 +14,10 @@ def test_single_entry_succeeds():
 
 def test_reentry_raises_runtime_error():
     guard = ReentrancyGuard()
-    with guard:
-        with pytest.raises(RuntimeError, match="deadlock avoided"):
-            with guard:
-                pass
+    with ExitStack() as stack:
+        stack.enter_context(guard)
+        stack.enter_context(pytest.raises(RuntimeError, match="deadlock avoided"))
+        stack.enter_context(guard)
 
 
 def test_guard_releases_after_exit():
