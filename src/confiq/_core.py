@@ -202,6 +202,30 @@ class Config(Generic[T]):
         """Add a `DefaultsSource` backed by the bound schema adapter as the lowest-priority layer. Returns `self`."""
         return self.add_source(DefaultsSource(self._adapter))
 
+    def add_click(
+        self,
+        ctx_or_params: Any,
+        *,
+        delimiter: str = "__",
+        priority: int | None = None,
+    ) -> Config[T]:
+        """Wrap `ClickSource`; integrates Click command parameters at CLI priority. Returns `self`."""
+        from confiq.sources.click_source import ClickSource
+
+        return self.add_source(ClickSource(ctx_or_params, delimiter=delimiter, priority=priority))
+
+    def add_typer(
+        self,
+        params: dict[str, Any],
+        *,
+        delimiter: str = "__",
+        priority: int | None = None,
+    ) -> Config[T]:
+        """Wrap `TyperSource`; integrates Typer command locals at CLI priority. Returns `self`."""
+        from confiq.sources.typer_source import TyperSource
+
+        return self.add_source(TyperSource(params, delimiter=delimiter, priority=priority))
+
     # ─── plugin / subscriber API
 
     def register_plugin(self, plugin: Any, name: str | None = None) -> None:

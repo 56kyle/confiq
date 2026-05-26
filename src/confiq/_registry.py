@@ -33,6 +33,10 @@ known_implementations: dict[str, dict[str, str]] = {
         "class": "confiq.sources.aws_secrets.AwsSecretsManagerSource",
         "err": "Install confiq[aws] to use AWS Secrets Manager.",
     },
+    "aws-s3": {
+        "class": "confiq.sources.aws_s3.AwsS3Source",
+        "err": "Install confiq[aws] to use AWS S3.",
+    },
     "gcp-secrets": {
         "class": "confiq.sources.gcp_secrets.GcpSecretManagerSource",
         "err": "Install confiq[gcp].",

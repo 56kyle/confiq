@@ -30,8 +30,13 @@ def test_unknown_protocol_raises_keyerror():
 
 
 def test_missing_dep_raises_missing_dependency_error():
+    # vault.py is importable without hvac; MissingDependencyError surfaces on load()
+    import sys
+    cls = get_source_class("vault")
+    src = cls(addr="http://vault:8200", path="myapp")
     with pytest.raises(MissingDependencyError):
-        get_source_class("vault")
+        sys.modules.pop("hvac", None)  # ensure hvac not cached from another test
+        src.load()
 
 
 def test_create_source_dict():
