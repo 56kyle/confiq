@@ -1,7 +1,5 @@
-from __future__ import annotations
-
-
 """Source-protocol registry and lazy-import factory, mirroring the fsspec pattern."""
+from __future__ import annotations
 
 import importlib
 import types
