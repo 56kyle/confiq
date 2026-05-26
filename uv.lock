@@ -509,10 +509,9 @@ all = [
     { name = "azure-keyvault-secrets" },
     { name = "boto3" },
     { name = "click" },
-    { name = "etcd3" },
     { name = "google-cloud-secret-manager" },
     { name = "hvac" },
-    { name = "python-consul2" },
+    { name = "py-consul" },
     { name = "pyyaml" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "watchdog" },
@@ -533,10 +532,7 @@ common = [
     { name = "watchdog" },
 ]
 consul = [
-    { name = "python-consul2" },
-]
-etcd = [
-    { name = "etcd3" },
+    { name = "py-consul" },
 ]
 gcp = [
     { name = "google-cloud-secret-manager" },
@@ -591,15 +587,14 @@ requires-dist = [
     { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.34" },
     { name = "click", marker = "extra == 'click'", specifier = ">=8.1" },
     { name = "confiq", extras = ["yaml", "toml", "watch"], marker = "extra == 'common'" },
-    { name = "confiq", extras = ["yaml", "toml", "watch", "click", "aws", "gcp", "azure", "vault", "consul", "etcd"], marker = "extra == 'all'" },
-    { name = "etcd3", marker = "extra == 'etcd'", specifier = ">=0.12" },
+    { name = "confiq", extras = ["yaml", "toml", "watch", "click", "aws", "gcp", "azure", "vault", "consul"], marker = "extra == 'all'" },
     { name = "google-cloud-secret-manager", marker = "extra == 'gcp'", specifier = ">=2.18" },
     { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "platformdirs", specifier = ">=4.3.8" },
     { name = "pluggy", specifier = ">=1.5" },
+    { name = "py-consul", marker = "extra == 'consul'", specifier = ">=1.7" },
     { name = "pydantic", specifier = ">=2.5" },
-    { name = "python-consul2", marker = "extra == 'consul'", specifier = ">=0.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'toml'", specifier = ">=2.0" },
@@ -607,7 +602,7 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.13.2" },
     { name = "watchdog", marker = "extra == 'watch'", specifier = ">=4.0" },
 ]
-provides-extras = ["yaml", "toml", "watch", "click", "aws", "gcp", "azure", "vault", "consul", "etcd", "common", "all"]
+provides-extras = ["yaml", "toml", "watch", "click", "aws", "gcp", "azure", "vault", "consul", "common", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -905,18 +900,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/ae/b6/03bb70946330e88ff
 wheels = [
     { url = "https://files.pythonhosted.org/packages/02/10/5da547df7a391dcde17f59520a231527b8571e6f46fc8efb02ccb370ab12/docutils-0.22.4-py3-none-any.whl", hash = "sha256:d0013f540772d1420576855455d050a2180186c91c15779301ac2ccb3eeb68de", size = 633196, upload-time = "2025-12-18T19:00:18.077Z" },
 ]
-
-[[package]]
-name = "etcd3"
-version = "0.12.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "grpcio" },
-    { name = "protobuf" },
-    { name = "six" },
-    { name = "tenacity" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/eb/6d1ef4d6a3e8b74e45c502cbd3ea6c5c6c786d003829db9369c2530f5e3f/etcd3-0.12.0.tar.gz", hash = "sha256:89a704cb389bf0a010a1fa050ce19342d23bf6371ebda1c21cfe8ff3ed488726", size = 63926, upload-time = "2020-03-31T17:12:28.503Z" }
 
 [[package]]
 name = "exceptiongroup"
@@ -1711,6 +1694,18 @@ wheels = [
 ]
 
 [[package]]
+name = "py-consul"
+version = "1.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/97/93/86604f8fd9bbbfe60ea80a2d17d4dfb2fd3e32c7af736d789cf72587e1f6/py_consul-1.7.1.tar.gz", hash = "sha256:a0b3912a0af449e1cd09c4aa710e53d1149c5edb3512a1becbe6475ed395761a", size = 36436, upload-time = "2025-11-24T11:37:25.978Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/c9/e8ed59e6d24c0972aa8be9e2a288ba096c7e7fc21739a296b624da7a4aa6/py_consul-1.7.1-py2.py3-none-any.whl", hash = "sha256:016fe49c65c68426e1c0353de2243865fd58e3c7a940413b6202c2becf3cfb04", size = 38736, upload-time = "2025-11-24T11:37:25.057Z" },
+]
+
+[[package]]
 name = "py-serializable"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1948,19 +1943,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/51/a849f96e117386044471c8ec2bd6cfebacda285da9525c9106aeb28da671/pytest_cov-7.1.0.tar.gz", hash = "sha256:30674f2b5f6351aa09702a9c8c364f6a01c27aae0c1366ae8016160d1efc56b2", size = 55592, upload-time = "2026-03-21T20:11:16.284Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl", hash = "sha256:a0461110b7865f9a271aa1b51e516c9a95de9d696734a2f71e3e78f46e1d4678", size = 22876, upload-time = "2026-03-21T20:11:14.438Z" },
-]
-
-[[package]]
-name = "python-consul2"
-version = "0.1.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-    { name = "six" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a8/a3/bc0bdf7e0a68a1fa8e7a2302491e1931438a6d08ed21bd6830ba1595671b/python-consul2-0.1.5.tar.gz", hash = "sha256:29c859de73e17f36ab99be831fdc1d924f16e8772233277a28ef92b7b99995cd", size = 31445, upload-time = "2020-10-20T06:19:54.982Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ff/52/5230ba94ededbfafa9df95c19f1272cf03916b6d33fce341936e3c74dd86/python_consul2-0.1.5-py2.py3-none-any.whl", hash = "sha256:ff8c6642c5a8d5f13a072e90adbad44cde824fc46fb2ab76b40dd1c77d6c0c41", size = 30002, upload-time = "2020-10-20T06:19:53.7Z" },
 ]
 
 [[package]]
@@ -2522,15 +2504,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e9/88/35e4d27d9177d7df76d060e0a18f69c6c5794c96960c94042e20a12c8ba2/stevedore-5.8.0.tar.gz", hash = "sha256:b49867b32ca3016e94100e68dbf26e72aa7b8708d0a3f73c08aeb220370ac715", size = 514710, upload-time = "2026-05-18T09:15:27.731Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f5/ac/19f9941c74add59d17694930ec8105d5eddeee4ce56dd8632b765ca16d6c/stevedore-5.8.0-py3-none-any.whl", hash = "sha256:88eede9e66ca80e34085b9174e2327da2c61ac91f24f70e41c3ad76e4bb4872b", size = 54553, upload-time = "2026-05-18T09:15:25.82Z" },
-]
-
-[[package]]
-name = "tenacity"
-version = "9.1.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/47/c6/ee486fd809e357697ee8a44d3d69222b344920433d3b6666ccd9b374630c/tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a", size = 49413, upload-time = "2026-02-07T10:45:33.841Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/c1/eb8f9debc45d3b7918a32ab756658a0904732f75e555402972246b0b8e71/tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55", size = 28926, upload-time = "2026-02-07T10:45:32.24Z" },
 ]
 
 [[package]]

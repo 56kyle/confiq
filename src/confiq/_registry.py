@@ -53,10 +53,6 @@ known_implementations: dict[str, dict[str, str]] = {
         "class": "confiq.sources.consul.ConsulSource",
         "err": "Install confiq[consul].",
     },
-    "etcd": {
-        "class": "confiq.sources.etcd.EtcdSource",
-        "err": "Install confiq[etcd].",
-    },
 }
 
 

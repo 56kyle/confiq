@@ -45,7 +45,7 @@ class VaultSource(AbstractConfigSource):
             ) from exc
 
         token: str | None = self.token or os.environ.get("VAULT_TOKEN")
-        client = hvac.Client(url=self.addr, token=token)
+        client: hvac.Client = hvac.Client(url=self.addr, token=token)
         response = client.secrets.kv.v2.read_secret_version(
             path=self.vault_path,
             mount_point=self.mount_point,

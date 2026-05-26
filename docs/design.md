@@ -79,7 +79,7 @@ confiq/
 │   ├── gcp_secrets.py       # [gcp] extra
 │   ├── azure_keyvault.py    # [azure] extra
 │   ├── vault.py             # [vault] extra
-│   ├── consul.py / etcd.py  # [consul] / [etcd]
+│   ├── consul.py            # [consul]
 ├── loaders/                 # pluggy hookimpls for each file format
 │   ├── json_loader.py       # built-in
 │   ├── yaml_loader.py       # [yaml]
@@ -405,8 +405,6 @@ known_implementations: dict[str, dict[str, str]] = {
                  "err":   "Install confiq[vault]  (uses hvac)."},
     "consul":   {"class": "confiq.sources.consul.ConsulSource",
                  "err":   "Install confiq[consul]."},
-    "etcd":     {"class": "confiq.sources.etcd.EtcdSource",
-                 "err":   "Install confiq[etcd]."},
 }
 
 
@@ -1315,14 +1313,13 @@ aws    = ["boto3>=1.34"]
 gcp    = ["google-cloud-secret-manager>=2.18"]
 azure  = ["azure-identity>=1.15", "azure-keyvault-secrets>=4.7"]
 vault  = ["hvac>=2.0"]
-consul = ["python-consul2>=0.1"]
-etcd   = ["etcd3>=0.12"]
+consul = ["py-consul>=1.7"]
 
 # Convenience meta-extras
 # (Per Hynek Schlawack's "Recursive Optional Dependencies in Python":
 #  "Since pip 21.2 you can refer to your own project in your optional dependencies.")
 common = ["confiq[yaml,toml,dotenv,watch]"]
-all    = ["confiq[yaml,toml,dotenv,watch,click,typer,aws,gcp,azure,vault,consul,etcd]"]
+all    = ["confiq[yaml,toml,dotenv,watch,click,typer,aws,gcp,azure,vault,consul]"]
 dev    = ["pytest>=8", "pytest-asyncio>=0.23", "mypy>=1.10", "ruff>=0.5"]
 
 # Source-class registry (instances). Mirrors fsspec.specs.
@@ -1428,7 +1425,7 @@ This is exactly the pytest mental model: there are _fixtures_ (instances you com
 | **One global object**             | yes (loguru-style)                                       | yes (`from dynaconf import settings`)                      | no — you instantiate `Settings()`               | per-`@hydra.main`                                                       | yes (`config`)  |
 | **Pluggable source registry**     | **yes (entry points, fsspec-style)**                     | partial (`core_loaders`, custom loaders)                   | yes (`settings_customise_sources`)              | composable but not registry-based                                       | no              |
 | **First-class plugin framework**  | **yes (pluggy)**                                         | no                                                         | no                                              | no                                                                      | no              |
-| **Cloud sources**                 | optional extras (AWS/GCP/Azure/Vault/Consul/etcd)        | Vault, Redis built-in                                      | AWS, GCP, Azure source classes built in         | none built-in                                                           | none            |
+| **Cloud sources**                 | optional extras (AWS/GCP/Azure/Vault/Consul)             | Vault, Redis built-in                                      | AWS, GCP, Azure source classes built in         | none built-in                                                           | none            |
 | **Pydantic-native**               | **yes** (generic `Config[T]`)                            | optional integration                                       | **yes** (it _is_ pydantic)                      | no (dataclasses/attrs)                                                  | no              |
 | **Schema validation**             | pydantic / dataclass / TypedDict / extensible via pluggy | rule-based `Validator(...)`                                | pydantic                                        | dataclass/attrs runtime                                                 | manual `cast=`  |
 | **Thread safety**                 | **explicit, immutable snapshot + atomic swap**           | unspecified                                                | unspecified (per-instance, no shared state)     | **"OmegaConf is not thread-safe" (maintainer @omry, Discussion #1116)** | unspecified     |
@@ -1458,7 +1455,7 @@ This is exactly the pytest mental model: there are _fixtures_ (instances you com
 
 7. **Live reload by default?** _Choice: off._ `watch=True` per file. "Config is immutable for the process lifetime" is the safer default. The `on_reload` hook and `config.reload()` are always available.
 
-8. **Built-in HTTP/etcd long-poll watcher?** Not in v1. The `ConfigSource.watch(on_change)` hook is in the protocol; extras can implement it later.
+8. **Built-in HTTP long-poll watcher?** Not in v1. The `ConfigSource.watch(on_change)` hook is in the protocol; extras can implement it later.
 
 9. **Why not OmegaConf interpolations (`${foo.bar}`)?** They turn config evaluation into a graph problem with cycles, defaults, and order-dependent resolvers. OmegaConf itself is not thread-safe per its maintainer. Users who want it can pre-process YAML with `omegaconf` and pass the result through `add_source(DictSource(omegaconf.to_container(...)))` — or write a `before_load`/`after_merge` pluggy hookimpl that runs interpolation.
 
