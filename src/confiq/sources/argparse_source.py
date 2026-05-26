@@ -53,32 +53,23 @@ def _explode_dots(ns_dict: dict[str, Any]) -> dict[str, Any]:
 def _parse_dotted(argv: list[str]) -> dict[str, Any]:
     """Parse --key.sub.path=value or --key.sub.path value from an argv list."""
     out: dict[str, Any] = {}
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a == "--":
+    for i, arg in enumerate(argv):
+        if arg == "--":
             break
-        if not a.startswith("--"):
-            i += 1
+        if not arg.startswith("--"):
             continue
-        raw_token: str = a
-        a = a[2:]
-        if "=" in a:
-            k, v_str = a.split("=", 1)
-            val: Any = parse_env_value(v_str)
-            i += 1
+        stripped = arg[2:]
+        if "=" in stripped:
+            key, value_str = stripped.split("=", 1)
+            val: Any = parse_env_value(value_str)
         else:
-            k = a
-            if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
-                val = parse_env_value(argv[i + 1])
-                i += 2
-            else:
-                val = True
-                i += 1
-        if any(seg == "" for seg in k.split(".")):
-            raise ValueError(f"invalid argument key: {raw_token!r}")
+            key = stripped
+            next_arg = argv[i + 1] if i + 1 < len(argv) else None
+            val = parse_env_value(next_arg) if next_arg is not None and not next_arg.startswith("--") else True
+        if any(seg == "" for seg in key.split(".")):
+            raise ValueError(f"invalid argument key: {arg!r}")
         try:
-            set_nested_path(out, k.split("."), val)
-        except (TypeError, AttributeError):
-            raise ValueError(f"argument '--{k}' conflicts with earlier value at an ancestor key")
+            set_nested_path(out, key.split("."), val)
+        except (TypeError, AttributeError) as err:
+            raise ValueError(f"argument '--{key}' conflicts with earlier value at an ancestor key") from err
     return out

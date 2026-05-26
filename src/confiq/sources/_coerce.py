@@ -31,10 +31,10 @@ def parse_env_value(v: str) -> Any:
 def set_nested_path(d: dict[str, Any], parts: list[str], val: Any) -> None:
     """Assign val into d at the nested key path described by parts."""
     cur: dict[str, Any] = d
-    for p in parts[:-1]:
-        cur = cur.setdefault(p, {})
+    for part in parts[:-1]:
+        cur = cur.setdefault(part, {})
         if not isinstance(cur, dict):
             raise ValueError(
-                f"Cannot nest under key {p!r}: existing value is {type(cur).__name__!r}, not a dict"
+                f"Cannot nest under key {part!r}: existing value is {type(cur).__name__!r}, not a dict"
             )
     cur[parts[-1]] = val
