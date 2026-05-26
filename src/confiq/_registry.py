@@ -90,10 +90,10 @@ def get_source_class(protocol: str) -> type:
     if protocol in _registry:
         return _registry[protocol]
     if protocol in known_implementations:
-        spec = known_implementations[protocol]
+        spec: dict[str, str] = known_implementations[protocol]
         try:
             mod_path, _, cls_name = spec["class"].rpartition(".")
-            cls = getattr(importlib.import_module(mod_path), cls_name)
+            cls: type = getattr(importlib.import_module(mod_path), cls_name)
         except ImportError as e:
             raise MissingDependencyError(spec.get("err") or str(e)) from e
         _registry[protocol] = cls
@@ -111,7 +111,7 @@ def _discover_entry_points() -> None:
         try:
             # Entry-point values use "module:Class" format; convert to "module.Class"
             # for compatibility with get_source_class's rpartition(".") logic.
-            dotted = ep.value.replace(":", ".")
+            dotted: str = ep.value.replace(":", ".")
             register_implementation(ep.name, dotted)
         except Exception as e:
             warnings.warn(f"Failed to register source {ep.name!r}: {e}", stacklevel=2)

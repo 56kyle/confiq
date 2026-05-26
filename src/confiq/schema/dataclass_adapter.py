@@ -20,8 +20,8 @@ class DataclassAdapter:
 
     def validate(self, data: dict[str, Any]) -> Any:
         """Construct the dataclass from `data`, dropping unknown keys and emitting a `UserWarning` for each unknown key."""
-        accepted = {f.name for f in fields(self.dc_cls)}
-        unknown = set(data) - accepted
+        accepted: set[str] = {f.name for f in fields(self.dc_cls)}
+        unknown: set[str] = set(data) - accepted
         if unknown:
             warnings.warn(
                 f"Config keys {sorted(unknown)!r} are not fields of {self.dc_cls.__name__!r} and will be ignored.",

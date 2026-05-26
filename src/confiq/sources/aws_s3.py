@@ -45,7 +45,7 @@ class AwsS3Source(AbstractConfigSource):
         response = client.get_object(Bucket=self.bucket, Key=self.key)
         content = response["Body"].read().decode("utf-8")
 
-        suffix = (self.file_format or Path(self.key).suffix).lower()
+        suffix: str = (self.file_format or Path(self.key).suffix).lower()
         if not suffix.startswith("."):
             suffix = "." + suffix
 

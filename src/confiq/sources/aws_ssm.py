@@ -51,11 +51,11 @@ class AwsSsmSource(AbstractConfigSource):
             WithDecryption=True,
         ):
             for param in page["Parameters"]:
-                rel = param["Name"][len(self.ssm_path):]
-                parts = [p for p in rel.split("/") if p]
+                rel: str = param["Name"][len(self.ssm_path):]
+                parts: list[str] = [p for p in rel.split("/") if p]
                 if not parts:
                     continue
-                raw = param["Value"]
+                raw: str = param["Value"]
                 if param["Type"] == "StringList":
                     value: Any = [parse_env_value(v.strip()) for v in raw.split(",")]
                 else:

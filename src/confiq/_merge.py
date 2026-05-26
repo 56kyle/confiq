@@ -12,7 +12,7 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 
     Mirrors pydantic's deep_update semantics. See ADR 0004.
     """
-    out = dict(base)
+    out: dict[str, Any] = dict(base)
     for k, v in overlay.items():
         if k in out and isinstance(out[k], _MAP) and isinstance(v, _MAP):
             out[k] = deep_merge(dict(out[k]), dict(v))

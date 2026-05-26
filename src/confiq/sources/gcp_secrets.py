@@ -41,7 +41,7 @@ class GcpSecretManagerSource(AbstractConfigSource):
             ) from exc
 
         client = secretmanager.SecretManagerServiceClient()
-        name = (
+        name: str = (
             f"projects/{self.project_id}"
             f"/secrets/{self.secret_id}"
             f"/versions/{self.version}"

@@ -53,7 +53,7 @@ class FileSource(AbstractConfigSource):
             if self.required:
                 raise FileNotFoundError(self.path)
             return {}
-        suffix = (self.file_format or self.path.suffix).lower()
+        suffix: str = (self.file_format or self.path.suffix).lower()
         if not suffix.startswith("."):
             suffix = "." + suffix
         if self._pm is None:

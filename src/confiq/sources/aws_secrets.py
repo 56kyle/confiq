@@ -40,9 +40,9 @@ class AwsSecretsManagerSource(AbstractConfigSource):
         client = boto3.client("secretsmanager", region_name=self.region)
         response = client.get_secret_value(SecretId=self.secret_id)
 
-        secret_str = response.get("SecretString")
+        secret_str: str | None = response.get("SecretString")
         if secret_str is not None:
             return _decode_json(secret_str)
 
-        secret_binary = response.get("SecretBinary", b"")
+        secret_binary: bytes = response.get("SecretBinary", b"")
         return _decode_json(base64.b64decode(secret_binary).decode("utf-8"))

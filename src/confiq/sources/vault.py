@@ -42,7 +42,7 @@ class VaultSource(AbstractConfigSource):
                 "Install confiq[vault] to use HashiCorp Vault (requires hvac>=2.0)."
             ) from exc
 
-        token = self.token or os.environ.get("VAULT_TOKEN")
+        token: str | None = self.token or os.environ.get("VAULT_TOKEN")
         client = hvac.Client(url=self.addr, token=token)
         response = client.secrets.kv.v2.read_secret_version(
             path=self.vault_path,

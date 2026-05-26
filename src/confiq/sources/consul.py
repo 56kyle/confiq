@@ -57,11 +57,11 @@ class ConsulSource(AbstractConfigSource):
         if not pairs:
             return out
         for pair in pairs:
-            rel = pair["Key"][len(self.consul_path):]
-            parts = [p for p in rel.split("/") if p]
+            rel: str = pair["Key"][len(self.consul_path):]
+            parts: list[str] = [p for p in rel.split("/") if p]
             if not parts or pair["Value"] is None:
                 continue
-            value_str = pair["Value"].decode("utf-8")
+            value_str: str = pair["Value"].decode("utf-8")
             try:
                 value: Any = json.loads(value_str)
             except json.JSONDecodeError:

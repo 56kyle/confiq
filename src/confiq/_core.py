@@ -249,9 +249,9 @@ class Config(Generic[T]):
     @contextmanager
     def override(self, **patches: Any) -> Iterator[Config[T]]:
         """contextvars-based per-task override; safe for asyncio and threads."""
-        prev = self._override_var.get()
-        new = deep_merge(copy.deepcopy(prev) if prev else {}, patches)
-        token = self._override_var.set(new)
+        prev: dict[str, Any] | None = self._override_var.get()
+        new: dict[str, Any] = deep_merge(copy.deepcopy(prev) if prev else {}, patches)
+        token: contextvars.Token[dict[str, Any] | None] = self._override_var.set(new)
         try:
             yield self
         finally:
@@ -265,7 +265,7 @@ class Config(Generic[T]):
     # ─── internals (lock is held) ─────────────────────────────────────────────
 
     def _rebuild_locked(self) -> ConfigSnapshot[T]:
-        old = self._current
+        old: ConfigSnapshot[T] = self._current
         merged: dict[str, Any] = {}
         sources_used: list[str] = []
         for src in self._sources:

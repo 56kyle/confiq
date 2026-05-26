@@ -37,7 +37,7 @@ class EnvSource(AbstractConfigSource):
 
     def load(self) -> dict[str, Any]:
         """Return env-var values as a nested dict after prefix-stripping and delimiter-splitting."""
-        env = dict(os.environ)
+        env: dict[str, str] = dict(os.environ)
         if self.dotenv is not None:
             env = {**_parse_dotenv_file(self.dotenv), **env}
         out: dict[str, Any] = {}
@@ -52,5 +52,5 @@ class EnvSource(AbstractConfigSource):
 
 
 def _parse_dotenv_file(dotenv: Any) -> dict[str, str]:
-    path = Path(dotenv) if not isinstance(dotenv, Path) else dotenv
+    path: Path = Path(dotenv) if not isinstance(dotenv, Path) else dotenv
     return dict(dotenv_values(path))

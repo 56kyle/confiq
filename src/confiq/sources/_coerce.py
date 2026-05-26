@@ -30,7 +30,7 @@ def parse_env_value(v: str) -> Any:
 
 def set_nested_path(d: dict[str, Any], parts: list[str], val: Any) -> None:
     """Assign val into d at the nested key path described by parts."""
-    cur = d
+    cur: dict[str, Any] = d
     for p in parts[:-1]:
         cur = cur.setdefault(p, {})
     cur[parts[-1]] = val

@@ -30,7 +30,7 @@ def show(
         raise typer.Exit(1)
 
     snap = cfg.snapshot()
-    typer.echo(json.dumps(snap.raw, cls=_SnapshotEncoder, indent=2))
+    typer.echo(json.dumps(snap.as_dict(), indent=2))
 
 
 @app.command()

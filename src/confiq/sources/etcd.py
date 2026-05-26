@@ -46,12 +46,12 @@ class EtcdSource(AbstractConfigSource):
         client = etcd3.client(host=self.host, port=self.port)
         out: dict[str, Any] = {}
         for value_bytes, metadata in client.get_prefix(self.etcd_path):
-            key = metadata.key.decode("utf-8")
-            rel = key[len(self.etcd_path):]
-            parts = [p for p in rel.split("/") if p]
+            key: str = metadata.key.decode("utf-8")
+            rel: str = key[len(self.etcd_path):]
+            parts: list[str] = [p for p in rel.split("/") if p]
             if not parts or value_bytes is None:
                 continue
-            value_str = value_bytes.decode("utf-8")
+            value_str: str = value_bytes.decode("utf-8")
             try:
                 value: Any = json.loads(value_str)
             except json.JSONDecodeError:
