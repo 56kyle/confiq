@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from confiq.sources.base import AbstractConfigSource, PRIORITY_FILE
+from confiq.sources.base import PRIORITY_FILE
+from confiq.sources.base import AbstractConfigSource
 
 
 class DictSource(AbstractConfigSource):

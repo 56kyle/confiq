@@ -2,11 +2,10 @@
 
 import json
 
-import pytest
 from pydantic import BaseModel
 
 from confiq._core import Config
-from confiq.sources.base import PRIORITY_ENV, PRIORITY_FILE
+from confiq.sources.base import PRIORITY_FILE
 
 
 class AppSettings(BaseModel):

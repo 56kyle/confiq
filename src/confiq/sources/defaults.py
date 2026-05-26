@@ -1,13 +1,10 @@
+"""Config source that emits schema-derived default values."""
 from __future__ import annotations
 
-"""Config source that emits schema-derived default values."""
+from typing import Any
 
-from typing import TYPE_CHECKING, Any
-
-from confiq.sources.base import AbstractConfigSource, PRIORITY_DEFAULTS
-
-if TYPE_CHECKING:
-    pass
+from confiq.sources.base import PRIORITY_DEFAULTS
+from confiq.sources.base import AbstractConfigSource
 
 
 class DefaultsSource(AbstractConfigSource):

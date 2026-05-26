@@ -1,10 +1,12 @@
-from __future__ import annotations
-
 """Immutable config state container published after each rebuild."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Generic, TypeVar
+from typing import Any
+from typing import Generic
+from typing import TypeVar
+
 
 T = TypeVar("T")
 

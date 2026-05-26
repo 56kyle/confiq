@@ -1,11 +1,9 @@
 import pytest
 
-from confiq._registry import (
-    MissingDependencyError,
-    create_source,
-    get_source_class,
-    register_implementation,
-)
+from confiq._registry import MissingDependencyError
+from confiq._registry import create_source
+from confiq._registry import get_source_class
+from confiq._registry import register_implementation
 from confiq.sources.dict_source import DictSource
 from confiq.sources.env import EnvSource
 from confiq.sources.file import FileSource

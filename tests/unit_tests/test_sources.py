@@ -1,10 +1,10 @@
 import json
-import os
 
 import pytest
 
-from confiq.sources._coerce import parse_env_value, set_nested_path
-from confiq.sources.argparse_source import ArgparseSource, _parse_dotted
+from confiq.sources._coerce import parse_env_value
+from confiq.sources._coerce import set_nested_path
+from confiq.sources.argparse_source import ArgparseSource
 from confiq.sources.dict_source import DictSource
 from confiq.sources.env import EnvSource
 
@@ -118,7 +118,8 @@ class TestCoerce:
 
 class TestFileSource:
     def test_load_json(self, tmp_path):
-        from confiq._plugins import _make_plugin_manager, _register_optional_loaders
+        from confiq._plugins import _make_plugin_manager
+        from confiq._plugins import _register_optional_loaders
         from confiq.sources.file import FileSource
 
         pm = _make_plugin_manager()

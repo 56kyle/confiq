@@ -1,8 +1,7 @@
 from types import MappingProxyType
 
-import pytest
-
-from confiq._merge import _freeze, deep_merge
+from confiq._merge import _freeze
+from confiq._merge import deep_merge
 
 
 def test_scalar_overlay_wins():

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import MISSING, fields, is_dataclass
+from dataclasses import MISSING
+from dataclasses import fields
+from dataclasses import is_dataclass
 from typing import Any
 
 

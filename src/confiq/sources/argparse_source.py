@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+
 """Config source that reads from argparse namespaces or raw argv."""
 
 import sys
 from typing import Any
 
-from confiq.sources.base import AbstractConfigSource, PRIORITY_CLI
-from confiq.sources._coerce import parse_env_value, set_nested_path
+from confiq.sources._coerce import parse_env_value
+from confiq.sources._coerce import set_nested_path
+from confiq.sources.base import PRIORITY_CLI
+from confiq.sources.base import AbstractConfigSource
 
 
 class ArgparseSource(AbstractConfigSource):

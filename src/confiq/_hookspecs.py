@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from typing import Any
 
 import pluggy
+
 
 hookspec = pluggy.HookspecMarker("confiq")
 hookimpl = pluggy.HookimplMarker("confiq")
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from confiq._snapshot import ConfigSnapshot
     from confiq.sources.base import ConfigSource
 

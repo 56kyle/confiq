@@ -1,9 +1,13 @@
+"""Base protocol and abstract class for all config sources."""
 from __future__ import annotations
 
-"""Base protocol and abstract class for all config sources."""
+from abc import ABC
+from abc import abstractmethod
+from typing import Any
+from typing import ClassVar
+from typing import Protocol
+from typing import runtime_checkable
 
-from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Protocol, runtime_checkable
 
 JSONDict = dict[str, Any]
 
@@ -56,4 +60,4 @@ class AbstractConfigSource(ABC):
 
     def watch(self, on_change: Any) -> None:
         """No-op; override alongside `supports_watch` to implement watching."""
-        return None
+        return

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
+
 
 try:
     import tomllib
@@ -11,6 +12,10 @@ except ImportError:
     import tomli as tomllib  # type: ignore[no-redef]
 
 from confiq._hookspecs import hookimpl
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @hookimpl

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from confiq._watch import watch_path
+
+
 """Config source that loads a single file via pluggy hook dispatch."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from typing import Any
 
-from confiq.sources.base import AbstractConfigSource, PRIORITY_FILE
+from confiq.sources.base import PRIORITY_FILE
+from confiq.sources.base import AbstractConfigSource
+
 
 if TYPE_CHECKING:
     import pluggy
@@ -66,6 +72,4 @@ class FileSource(AbstractConfigSource):
 
     def watch(self, on_change: Any) -> Any:
         """Attach a filesystem watcher; calls `on_change` whenever the file changes."""
-        from confiq._watch import watch_path
-
         return watch_path(self.path, on_change)

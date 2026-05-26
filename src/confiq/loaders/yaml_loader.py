@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
 
 import yaml  # raises ImportError if confiq[yaml] not installed
 
 from confiq._hookspecs import hookimpl
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @hookimpl

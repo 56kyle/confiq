@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel
+
 
 class PydanticAdapter:
     """Validates config dicts against a pydantic BaseModel and extracts its defaults."""
 
     def __init__(self, model_cls: type) -> None:
         """Raises `TypeError` if `model_cls` is not a pydantic BaseModel subclass."""
-        from pydantic import BaseModel
-
         if not (isinstance(model_cls, type) and issubclass(model_cls, BaseModel)):
             raise TypeError(f"{model_cls!r} is not a pydantic BaseModel")
         self.model_cls = model_cls

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 """Source-protocol registry and lazy-import factory, mirroring the fsspec pattern."""
 
 import importlib
@@ -7,6 +8,7 @@ import types
 import warnings
 from importlib.metadata import entry_points
 from typing import Any
+
 
 _registry: dict[str, type] = {}
 registry = types.MappingProxyType(_registry)
@@ -110,7 +112,7 @@ def _discover_entry_points() -> None:
             dotted = ep.value.replace(":", ".")
             register_implementation(ep.name, dotted)
         except Exception as e:
-            warnings.warn(f"Failed to register source {ep.name!r}: {e}")
+            warnings.warn(f"Failed to register source {ep.name!r}: {e}", stacklevel=2)
 
 
 _discover_entry_points()

@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import configparser
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
 
 import pluggy
 
-from confiq._hookspecs import ConfiqSpecs, hookimpl
+from confiq._hookspecs import ConfiqSpecs
+from confiq._hookspecs import hookimpl
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_plugin_manager() -> pluggy.PluginManager:
@@ -53,8 +58,9 @@ def _is_typeddict(tp: object) -> bool:
 class _BuiltinAdapters:
     @hookimpl
     def confiq_get_schema_adapter(self, schema: type) -> Any | None:
-        from pydantic import BaseModel
         from dataclasses import is_dataclass
+
+        from pydantic import BaseModel
 
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             from confiq.schema.pydantic_adapter import PydanticAdapter

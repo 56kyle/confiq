@@ -1,13 +1,16 @@
-from __future__ import annotations
-
 """Config source that reads environment variables."""
+from __future__ import annotations
 
 import os
 from pathlib import Path
 from typing import Any
 
-from confiq.sources.base import AbstractConfigSource, PRIORITY_ENV
-from confiq.sources._coerce import parse_env_value, set_nested_path
+from dotenv import dotenv_values
+
+from confiq.sources._coerce import parse_env_value
+from confiq.sources._coerce import set_nested_path
+from confiq.sources.base import PRIORITY_ENV
+from confiq.sources.base import AbstractConfigSource
 
 
 class EnvSource(AbstractConfigSource):
@@ -49,7 +52,5 @@ class EnvSource(AbstractConfigSource):
 
 
 def _parse_dotenv_file(dotenv: Any) -> dict[str, str]:
-    from dotenv import dotenv_values
-
     path = Path(dotenv) if not isinstance(dotenv, Path) else dotenv
     return dict(dotenv_values(path))

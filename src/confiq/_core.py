@@ -5,13 +5,25 @@ import copy
 import threading
 from contextlib import contextmanager
 from types import MappingProxyType
-from typing import Any, Callable, Generic, Iterator, TypeVar
+from typing import Any
+from typing import Callable
+from typing import Generic
+from typing import Iterator
+from typing import TypeVar
 
 from confiq._hookspecs import hookimpl
 from confiq._locks import ReentrancyGuard
-from confiq._merge import _freeze, deep_merge
-from confiq._plugins import _make_plugin_manager, _register_optional_loaders
+from confiq._merge import _freeze
+from confiq._merge import deep_merge
+from confiq._plugins import _make_plugin_manager
+from confiq._plugins import _register_optional_loaders
 from confiq._snapshot import ConfigSnapshot
+from confiq.sources.argparse_source import ArgparseSource
+from confiq.sources.defaults import DefaultsSource
+from confiq.sources.dict_source import DictSource
+from confiq.sources.env import EnvSource
+from confiq.sources.file import FileSource
+
 
 T = TypeVar("T")
 
@@ -136,8 +148,6 @@ class Config(Generic[T]):
         `required=False` silently returns `{}` when the file is absent; `watch=True`
         attaches a filesystem watcher. Returns `self`.
         """
-        from confiq.sources.file import FileSource
-
         return self.add_source(
             FileSource(
                 path,
@@ -156,8 +166,6 @@ class Config(Generic[T]):
         priority: int | None = None,
     ) -> Config[T]:
         """Wrap `data` in a `DictSource`; canonical primitive for tests and inline defaults. Returns `self`."""
-        from confiq.sources.dict_source import DictSource
-
         return self.add_source(DictSource(data, priority=priority))
 
     def add_env(
@@ -174,8 +182,6 @@ class Config(Generic[T]):
         is set its values are merged under the live environment, with live env winning.
         Returns `self`.
         """
-        from confiq.sources.env import EnvSource
-
         return self.add_source(EnvSource(prefix=prefix, delimiter=delimiter, dotenv=dotenv, priority=priority))
 
     def add_argparse(
@@ -190,14 +196,10 @@ class Config(Generic[T]):
         Pass a parsed `argparse.Namespace` or a raw `argv` list using `--key.sub=value`
         dot syntax; defaults to `sys.argv[1:]` when both are None. Returns `self`.
         """
-        from confiq.sources.argparse_source import ArgparseSource
-
         return self.add_source(ArgparseSource(namespace=namespace, argv=argv, priority=priority))
 
     def add_defaults_from_schema(self) -> Config[T]:
         """Add a `DefaultsSource` backed by the bound schema adapter as the lowest-priority layer. Returns `self`."""
-        from confiq.sources.defaults import DefaultsSource
-
         return self.add_source(DefaultsSource(self._adapter))
 
     # ─── plugin / subscriber API
