@@ -47,5 +47,10 @@ class GcpSecretManagerSource(AbstractConfigSource):
             f"/versions/{self.version}"
         )
         response = client.access_secret_version(request={"name": name})
-        payload = response.payload.data.decode("utf-8")
+        try:
+            payload: str = response.payload.data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"GCP secret payload could not be decoded as UTF-8: {exc}"
+            ) from exc
         return _decode_json(payload)

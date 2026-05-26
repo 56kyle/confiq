@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pydantic
 from pydantic import BaseModel
 
 
@@ -24,5 +25,5 @@ class PydanticAdapter:
         """Return the model's default values via `model_dump()`. Falls back to `model_construct()` for models with required fields."""
         try:
             return self.model_cls().model_dump()
-        except Exception:
+        except pydantic.ValidationError:
             return self.model_cls.model_construct().model_dump()

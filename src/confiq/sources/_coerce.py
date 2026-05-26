@@ -33,4 +33,8 @@ def set_nested_path(d: dict[str, Any], parts: list[str], val: Any) -> None:
     cur: dict[str, Any] = d
     for p in parts[:-1]:
         cur = cur.setdefault(p, {})
+        if not isinstance(cur, dict):
+            raise ValueError(
+                f"Cannot nest under key {p!r}: existing value is {type(cur).__name__!r}, not a dict"
+            )
     cur[parts[-1]] = val

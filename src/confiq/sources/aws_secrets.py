@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 from typing import Any
 
 from confiq._registry import MissingDependencyError
@@ -44,5 +45,13 @@ class AwsSecretsManagerSource(AbstractConfigSource):
         if secret_str is not None:
             return _decode_json(secret_str)
 
-        secret_binary: bytes = response.get("SecretBinary", b"")
-        return _decode_json(base64.b64decode(secret_binary).decode("utf-8"))
+        secret_binary: bytes | None = response.get("SecretBinary")
+        if secret_binary is None:
+            raise ValueError("Secret has neither SecretString nor SecretBinary")
+        try:
+            decoded: str = base64.b64decode(secret_binary).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError) as exc:
+            raise ValueError(
+                f"Secret binary value could not be decoded as base64 UTF-8: {exc}"
+            ) from exc
+        return _decode_json(decoded)

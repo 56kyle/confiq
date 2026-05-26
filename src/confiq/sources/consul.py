@@ -54,14 +54,22 @@ class ConsulSource(AbstractConfigSource):
         _, pairs = client.kv.get(self.consul_path, recurse=True)
 
         out: dict[str, Any] = {}
-        if not pairs:
+        if pairs is None:
             return out
         for pair in pairs:
-            rel: str = pair["Key"][len(self.consul_path):]
+            raw_key: str | None = pair.get("Key")
+            if raw_key is None:
+                continue
+            rel: str = raw_key[len(self.consul_path):]
             parts: list[str] = [p for p in rel.split("/") if p]
             if not parts or pair["Value"] is None:
                 continue
-            value_str: str = pair["Value"].decode("utf-8")
+            try:
+                value_str: str = pair["Value"].decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError(
+                    f"Consul key {raw_key!r} value could not be decoded as UTF-8: {exc}"
+                ) from exc
             try:
                 value: Any = json.loads(value_str)
             except json.JSONDecodeError:

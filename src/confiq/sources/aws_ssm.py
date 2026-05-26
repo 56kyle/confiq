@@ -51,12 +51,21 @@ class AwsSsmSource(AbstractConfigSource):
             WithDecryption=True,
         ):
             for param in page["Parameters"]:
-                rel: str = param["Name"][len(self.ssm_path):]
+                name: str | None = param.get("Name")
+                if name is None:
+                    raise ValueError("SSM parameter entry missing required field 'Name'")
+                value_field: str | None = param.get("Value")
+                if value_field is None:
+                    raise ValueError(f"SSM parameter entry {name!r} missing required field 'Value'")
+                type_field: str | None = param.get("Type")
+                if type_field is None:
+                    raise ValueError(f"SSM parameter entry {name!r} missing required field 'Type'")
+                rel: str = name[len(self.ssm_path):]
                 parts: list[str] = [p for p in rel.split("/") if p]
                 if not parts:
                     continue
-                raw: str = param["Value"]
-                if param["Type"] == "StringList":
+                raw: str = value_field
+                if type_field == "StringList":
                     value: Any = [parse_env_value(v.strip()) for v in raw.split(",")]
                 else:
                     value = parse_env_value(raw)

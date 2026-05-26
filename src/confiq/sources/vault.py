@@ -48,4 +48,9 @@ class VaultSource(AbstractConfigSource):
             path=self.vault_path,
             mount_point=self.mount_point,
         )
-        return dict(response["data"]["data"])
+        outer: Any = response.get("data")
+        if not isinstance(outer, dict) or "data" not in outer:
+            raise ValueError(
+                f"Vault response missing expected 'data.data' structure; got keys: {list(response.keys())}"
+            )
+        return outer["data"]

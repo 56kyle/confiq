@@ -113,8 +113,10 @@ def _discover_entry_points() -> None:
             # for compatibility with get_source_class's rpartition(".") logic.
             dotted: str = ep.value.replace(":", ".")
             register_implementation(ep.name, dotted)
-        except Exception as e:
+        except (ImportError, AttributeError) as e:
             warnings.warn(f"Failed to register source {ep.name!r}: {e}", stacklevel=2)
+        except Exception:
+            raise
 
 
 _discover_entry_points()
