@@ -1,3 +1,5 @@
+"""Config source that reads typed parameter values from a Click Context."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

@@ -1,3 +1,5 @@
+"""Filesystem watcher integration (watchdog) for live config file reloads."""
+
 from __future__ import annotations
 
 import threading

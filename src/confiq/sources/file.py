@@ -1,9 +1,8 @@
+"""Config source that loads a single file via pluggy hook dispatch."""
+
 from __future__ import annotations
 
 from confiq._watch import watch_path
-
-
-"""Config source that loads a single file via pluggy hook dispatch."""
 
 from pathlib import Path
 from typing import TYPE_CHECKING

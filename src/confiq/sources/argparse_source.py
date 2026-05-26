@@ -1,7 +1,6 @@
-from __future__ import annotations
-
-
 """Config source that reads from argparse namespaces or raw argv."""
+
+from __future__ import annotations
 
 import sys
 from typing import Any

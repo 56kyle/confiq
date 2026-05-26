@@ -1,3 +1,5 @@
+"""Pluggy plugin-manager factory and built-in loader/adapter registrations."""
+
 from __future__ import annotations
 
 import configparser

@@ -1,3 +1,5 @@
+"""Config source that reads parameters from AWS Systems Manager Parameter Store."""
+
 from __future__ import annotations
 
 from typing import Any

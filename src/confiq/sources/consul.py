@@ -1,3 +1,5 @@
+"""Config source that reads key-value pairs from a Consul prefix path."""
+
 from __future__ import annotations
 
 import json

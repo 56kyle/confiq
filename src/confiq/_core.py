@@ -1,3 +1,5 @@
+"""Core Config class: the public API for layered, schema-validated configuration."""
+
 from __future__ import annotations
 
 import contextvars

@@ -1,3 +1,5 @@
+"""Config source that reads KV v2 secrets from HashiCorp Vault."""
+
 from __future__ import annotations
 
 import os

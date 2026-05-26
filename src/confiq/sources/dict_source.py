@@ -1,3 +1,5 @@
+"""Config source that wraps a pre-built dict as a config layer."""
+
 from __future__ import annotations
 
 from typing import Any

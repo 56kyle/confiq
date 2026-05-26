@@ -1,3 +1,5 @@
+"""Per-thread reentrancy guard that fast-fails instead of deadlocking."""
+
 from __future__ import annotations
 
 import threading

@@ -1,3 +1,5 @@
+"""Deep-merge and immutable-freeze utilities for config dict layering."""
+
 from __future__ import annotations
 
 from types import MappingProxyType

@@ -1,3 +1,5 @@
+"""Config source that reads a secret from Google Cloud Secret Manager."""
+
 from __future__ import annotations
 
 from typing import Any

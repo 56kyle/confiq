@@ -1,3 +1,5 @@
+"""Value-coercion utilities shared across env-style config sources."""
+
 from __future__ import annotations
 
 import json

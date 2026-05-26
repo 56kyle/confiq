@@ -1,3 +1,5 @@
+"""Config source that reads key-value pairs from an etcd3 prefix path."""
+
 from __future__ import annotations
 
 import json

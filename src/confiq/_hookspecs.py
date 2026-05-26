@@ -1,3 +1,5 @@
+"""Pluggy hookspec/hookimpl markers and the ConfiqSpecs hook contract."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

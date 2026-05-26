@@ -1,3 +1,5 @@
+"""Config source that reads typed parameter values from a Typer command's locals."""
+
 from __future__ import annotations
 
 from typing import Any

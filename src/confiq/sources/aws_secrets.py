@@ -1,3 +1,5 @@
+"""Config source that reads a secret from AWS Secrets Manager."""
+
 from __future__ import annotations
 
 import base64

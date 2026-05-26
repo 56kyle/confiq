@@ -1,3 +1,5 @@
+"""Config source that reads a secret from Azure Key Vault."""
+
 from __future__ import annotations
 
 from typing import Any
