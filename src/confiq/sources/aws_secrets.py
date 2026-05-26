@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
+import base64
 from typing import Any
 
 from confiq._registry import MissingDependencyError
+from confiq.sources._coerce import _decode_json
 from confiq.sources.base import PRIORITY_CLOUD
 from confiq.sources.base import AbstractConfigSource
 
@@ -44,15 +45,4 @@ class AwsSecretsManagerSource(AbstractConfigSource):
             return _decode_json(secret_str)
 
         secret_binary = response.get("SecretBinary", b"")
-        import base64
         return _decode_json(base64.b64decode(secret_binary).decode("utf-8"))
-
-
-def _decode_json(text: str) -> dict[str, Any]:
-    try:
-        result = json.loads(text)
-        if isinstance(result, dict):
-            return result
-        return {"value": result}
-    except json.JSONDecodeError:
-        return {"value": text}

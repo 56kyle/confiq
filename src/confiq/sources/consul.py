@@ -48,10 +48,10 @@ class ConsulSource(AbstractConfigSource):
                 "Install confiq[consul] to use Consul."
             ) from exc
 
-        c = consul.Consul(
+        client = consul.Consul(
             host=self.host, port=self.port, token=self.token, scheme=self.scheme
         )
-        _, pairs = c.kv.get(self.consul_path, recurse=True)
+        _, pairs = client.kv.get(self.consul_path, recurse=True)
 
         out: dict[str, Any] = {}
         if not pairs:

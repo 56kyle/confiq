@@ -81,7 +81,7 @@ class TestWatchPath:
                 sys.modules["confiq._watch"] = watch_mod
 
 
-class TestFileSouceWatch:
+class TestFileSourceWatch:
     def test_add_file_with_watch_triggers_reload(self, tmp_path):
         from confiq._core import Config
 

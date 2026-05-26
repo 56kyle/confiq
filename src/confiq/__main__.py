@@ -1,10 +1,10 @@
 """Command-line interface for confiq."""
 from __future__ import annotations
 
+import importlib
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -17,7 +17,6 @@ app: typer.Typer = typer.Typer(help="confiq — inspect and validate config file
 @app.command()
 def show(
     path: Path = typer.Argument(..., help="Config file to display (JSON, YAML, TOML, INI)."),
-    output_format: str = typer.Option("json", "--format", "-f", help="Output format: json."),
 ) -> None:
     """Pretty-print a config file's merged content."""
     cfg = Config()
@@ -31,13 +30,13 @@ def show(
         raise typer.Exit(1)
 
     snap = cfg.snapshot()
-    typer.echo(json.dumps(dict(snap.raw), indent=2, default=str))
+    typer.echo(json.dumps(snap.raw, cls=_SnapshotEncoder, indent=2))
 
 
 @app.command()
 def validate(
     path: Path = typer.Argument(..., help="Config file to validate."),
-    schema: Optional[str] = typer.Option(
+    schema: str | None = typer.Option(
         None,
         "--schema",
         "-s",
@@ -68,13 +67,11 @@ def validate(
             )
             raise typer.Exit(1)
         try:
-            import importlib
             mod = importlib.import_module(module_path)
             schema_cls = getattr(mod, class_name)
         except (ImportError, AttributeError) as exc:
             typer.echo(f"error: could not import schema {schema!r}: {exc}", err=True)
             raise typer.Exit(1)
-
         try:
             cfg.bind(schema_cls)
         except Exception as exc:

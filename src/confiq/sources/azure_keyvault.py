@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from confiq._registry import MissingDependencyError
+from confiq.sources._coerce import _decode_json
 from confiq.sources.base import PRIORITY_CLOUD
 from confiq.sources.base import AbstractConfigSource
 
@@ -44,10 +44,6 @@ class AzureKeyVaultSource(AbstractConfigSource):
         client = SecretClient(vault_url=self.vault_url, credential=credential)
         secret = client.get_secret(self.secret_name)
 
-        try:
-            result = json.loads(secret.value or "")
-            if isinstance(result, dict):
-                return result
-            return {"value": result}
-        except (json.JSONDecodeError, TypeError):
-            return {"value": secret.value}
+        if secret.value is None:
+            return {"value": None}
+        return _decode_json(secret.value)

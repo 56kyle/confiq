@@ -1,6 +1,18 @@
 from __future__ import annotations
 
+import json
 from typing import Any
+
+
+def _decode_json(text: str) -> dict[str, Any]:
+    """JSON-decode text; wrap non-dict results as {"value": result}."""
+    try:
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
+        return {"value": result}
+    except json.JSONDecodeError:
+        return {"value": text}
 
 
 def parse_env_value(v: str) -> Any:

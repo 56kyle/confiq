@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from confiq._registry import MissingDependencyError
+from confiq.sources._coerce import _decode_json
 from confiq.sources.base import PRIORITY_CLOUD
 from confiq.sources.base import AbstractConfigSource
 
@@ -48,11 +48,4 @@ class GcpSecretManagerSource(AbstractConfigSource):
         )
         response = client.access_secret_version(request={"name": name})
         payload = response.payload.data.decode("utf-8")
-
-        try:
-            result = json.loads(payload)
-            if isinstance(result, dict):
-                return result
-            return {"value": result}
-        except json.JSONDecodeError:
-            return {"value": payload}
+        return _decode_json(payload)

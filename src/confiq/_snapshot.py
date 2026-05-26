@@ -13,6 +13,14 @@ T = TypeVar("T")
 _MISSING = object()
 
 
+def _to_dict(obj: Any) -> Any:
+    if isinstance(obj, MappingProxyType):
+        return {k: _to_dict(v) for k, v in obj.items()}
+    if isinstance(obj, tuple):
+        return [_to_dict(x) for x in obj]
+    return obj
+
+
 @dataclass(frozen=True, slots=True)
 class ConfigSnapshot(Generic[T]):
     """Immutable, fully-built config state. Readers get one of these; no lock needed.
@@ -24,6 +32,10 @@ class ConfigSnapshot(Generic[T]):
     raw: MappingProxyType  # type: ignore[type-arg]
     version: int
     sources: tuple[str, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return raw config data as a plain, JSON-serializable dict."""
+        return _to_dict(self.raw)
 
     def get(
         self,
