@@ -67,4 +67,5 @@ class FileSource(AbstractConfigSource):
     def watch(self, on_change: Any) -> Any:
         """Attach a filesystem watcher; calls `on_change` whenever the file changes."""
         from confiq._watch import watch_path
+
         return watch_path(self.path, on_change)

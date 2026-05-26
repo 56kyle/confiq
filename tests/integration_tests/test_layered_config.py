@@ -28,8 +28,8 @@ def test_env_overrides_file(tmp_path, monkeypatch):
     cfg.add_env(prefix="APP_")
 
     s = cfg.get()
-    assert s.host == "env-host"   # env wins
-    assert s.port == 9090          # file value kept (no env override)
+    assert s.host == "env-host"  # env wins
+    assert s.port == 9090  # file value kept (no env override)
 
 
 def test_layered_files_with_priority(tmp_path):
@@ -45,7 +45,7 @@ def test_layered_files_with_priority(tmp_path):
     cfg.add_file(override, priority=PRIORITY_FILE + 1)
 
     s = cfg.get()
-    assert s.name == "prod"       # higher-priority file wins
+    assert s.name == "prod"  # higher-priority file wins
     assert s.host == "base-host"  # base value kept
 
 
@@ -71,8 +71,8 @@ def test_defaults_lowest_priority(tmp_path):
     cfg.add_file(f)
 
     s = cfg.get()
-    assert s.host == "file-host"   # file wins over defaults
-    assert s.port == 8080           # schema default applied
+    assert s.host == "file-host"  # file wins over defaults
+    assert s.port == 8080  # schema default applied
 
 
 def test_reprioritize_reverses_order():

@@ -22,8 +22,7 @@ class DataclassAdapter:
         unknown = set(data) - accepted
         if unknown:
             warnings.warn(
-                f"Config keys {sorted(unknown)!r} are not fields of "
-                f"{self.dc_cls.__name__!r} and will be ignored.",
+                f"Config keys {sorted(unknown)!r} are not fields of {self.dc_cls.__name__!r} and will be ignored.",
                 stacklevel=2,
             )
         return self.dc_cls(**{k: v for k, v in data.items() if k in accepted})

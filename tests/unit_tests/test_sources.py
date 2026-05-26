@@ -24,6 +24,7 @@ class TestDictSource:
 
     def test_default_priority(self):
         from confiq.sources.base import PRIORITY_FILE
+
         assert DictSource({}).priority == PRIORITY_FILE
 
     def test_supports_watch_false(self):
@@ -84,6 +85,7 @@ class TestArgparseSource:
 
     def test_namespace_passed_directly(self):
         import argparse
+
         ns = argparse.Namespace(host="remote", port=9090)
         src = ArgparseSource(namespace=ns)
         result = src.load()

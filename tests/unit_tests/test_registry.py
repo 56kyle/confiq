@@ -60,11 +60,15 @@ def test_register_duplicate_raises_without_clobber():
 
     class A(AbstractConfigSource):
         protocol = "dup-test-abc"
-        def load(self): return {}
+
+        def load(self):
+            return {}
 
     class B(AbstractConfigSource):
         protocol = "dup-test-abc"
-        def load(self): return {}
+
+        def load(self):
+            return {}
 
     register_implementation("dup-test-abc", A, clobber=True)
     with pytest.raises(ValueError, match="already registered"):

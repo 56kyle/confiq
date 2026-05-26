@@ -24,9 +24,11 @@ class ConfigSource(Protocol):
     def load(self) -> JSONDict:
         """Return the config values this source provides as a flat or nested dict."""
         ...
+
     def supports_watch(self) -> bool:
         """Return True if this source can push change notifications."""
         ...
+
     def watch(self, on_change: Any) -> Any:
         """Begin watching for changes; call `on_change()` on each detected change."""
         ...

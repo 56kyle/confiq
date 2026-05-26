@@ -4,25 +4,25 @@
 
 ## TL;DR
 
-- **Build it as "loguru for config + fsspec for sources + pluggy for hooks."** (See `docs/decisions/0002-pluggy-as-plugin-framework.md` and `0003-dual-extension-surfaces.md`.) Expose a single pre-configured `config` object (loguru's `from loguru import logger` ergonomics), keep a pluggable source registry driven by `known_implementations` + `entry_points` (verbatim fsspec pattern) for *instantiable* sources, and use **pluggy** — the framework that powers pytest, tox, and devpi — for *stateless hooks*: lifecycle events (`before_load`, `after_merge`, `before_publish`, `on_reload`), file-format dispatch, and schema-adapter selection. Make `pydantic` and `pluggy` the only hard dependencies; put YAML/TOML/click/typer/watchdog/AWS/GCP/Azure/Vault/Consul/etcd behind extras that fail-fast with an actionable message when missing — the same `{"class": "...", "err": "..."}` shape fsspec's `known_implementations` uses.
-- **Pick the immutable-snapshot + atomic-reference-swap mutability model**, not an RWLock. (See `docs/decisions/0001-lock-free-reads-via-immutable-snapshots.md`.) Reads (`config.get(...)`) become entirely lock-free: a single attribute load of a frozen `ConfigSnapshot[T]`. Writes (`bind`, `add_source`, `reload`, `patch`) take a short non-reentrant `threading.Lock`, build the new snapshot under the lock, and publish via a single `STORE_ATTR`. Subscribers run on a daemon thread *outside* the lock, dispatched through pluggy's `on_reload` hook, and a loguru-style reentrancy guard (modeled on loguru's `_protected_lock` from `loguru/_handler.py`) makes deadlocks loud rather than hung.
+- **Build it as "loguru for config + fsspec for sources + pluggy for hooks."** (See `docs/decisions/0002-pluggy-as-plugin-framework.md` and `0003-dual-extension-surfaces.md`.) Expose a single pre-configured `config` object (loguru's `from loguru import logger` ergonomics), keep a pluggable source registry driven by `known_implementations` + `entry_points` (verbatim fsspec pattern) for _instantiable_ sources, and use **pluggy** — the framework that powers pytest, tox, and devpi — for _stateless hooks_: lifecycle events (`before_load`, `after_merge`, `before_publish`, `on_reload`), file-format dispatch, and schema-adapter selection. Make `pydantic` and `pluggy` the only hard dependencies; put YAML/TOML/click/typer/watchdog/AWS/GCP/Azure/Vault/Consul/etcd behind extras that fail-fast with an actionable message when missing — the same `{"class": "...", "err": "..."}` shape fsspec's `known_implementations` uses.
+- **Pick the immutable-snapshot + atomic-reference-swap mutability model**, not an RWLock. (See `docs/decisions/0001-lock-free-reads-via-immutable-snapshots.md`.) Reads (`config.get(...)`) become entirely lock-free: a single attribute load of a frozen `ConfigSnapshot[T]`. Writes (`bind`, `add_source`, `reload`, `patch`) take a short non-reentrant `threading.Lock`, build the new snapshot under the lock, and publish via a single `STORE_ATTR`. Subscribers run on a daemon thread _outside_ the lock, dispatched through pluggy's `on_reload` hook, and a loguru-style reentrancy guard (modeled on loguru's `_protected_lock` from `loguru/_handler.py`) makes deadlocks loud rather than hung.
 - **Use pydantic v2 as the schema spine and `contextvars` for async-safe overrides.** `Config[T]` is `Generic[T]` so `config.get()` returns a typed `Settings` instance with full IDE autocomplete; precedence is the same `CLI > env > file > defaults` chain pydantic-settings uses, exposed as a re-orderable list. Per-task overrides go through `contextvars.ContextVar` (not `threading.local`) so they survive `await` and behave correctly under asyncio per PEP 567.
 
 ## Key Findings
 
-1. **Loguru's secret is one object + many handlers, and its critical defensive idiom is a reentrancy-fail-fast lock**, not a clever RWLock. The handler module raises `"Could not acquire internal lock because it was already in use (deadlock avoided). This likely happened because the logger was re-used inside a sink, a signal handler or a '__del__' method."` (verbatim from `github.com/Delgan/loguru/blob/master/loguru/_handler.py`). The documented multiprocessing deadlock report — Issue #231, *"Bug - Deadlock when using multithreaded & multiprocessing Environment"* opened by @shachakz on Mar 30, 2020 against loguru 0.4.1 — is the cautionary tale our design must avoid.
+1. **Loguru's secret is one object + many handlers, and its critical defensive idiom is a reentrancy-fail-fast lock**, not a clever RWLock. The handler module raises `"Could not acquire internal lock because it was already in use (deadlock avoided). This likely happened because the logger was re-used inside a sink, a signal handler or a '__del__' method."` (verbatim from `github.com/Delgan/loguru/blob/master/loguru/_handler.py`). The documented multiprocessing deadlock report — Issue #231, _"Bug - Deadlock when using multithreaded & multiprocessing Environment"_ opened by @shachakz on Mar 30, 2020 against loguru 0.4.1 — is the cautionary tale our design must avoid.
 
-2. **fsspec's registry pattern is the right one for source instances.** `_registry: dict[str, type] = {}` is wrapped in `types.MappingProxyType(_registry)` for the public view; `known_implementations` maps protocol → `{"class": "pkg.mod.Class", "err": "Install ..."}`. Third parties register classes via `entry_points={"fsspec.specs": ["myfs=myfs.MyFS"]}`. We adopt this verbatim under the `confiq.sources` entry-point group — but only for sources, because sources are *configured instances*. For stateless multi-participant hooks (lifecycle, format dispatch, adapter selection), pluggy is the better tool.
+2. **fsspec's registry pattern is the right one for source instances.** `_registry: dict[str, type] = {}` is wrapped in `types.MappingProxyType(_registry)` for the public view; `known_implementations` maps protocol → `{"class": "pkg.mod.Class", "err": "Install ..."}`. Third parties register classes via `entry_points={"fsspec.specs": ["myfs=myfs.MyFS"]}`. We adopt this verbatim under the `confiq.sources` entry-point group — but only for sources, because sources are _configured instances_. For stateless multi-participant hooks (lifecycle, format dispatch, adapter selection), pluggy is the better tool.
 
 3. **Pluggy is the de-facto Python plugin framework.** It powers pytest, tox, and devpi; it has zero transitive dependencies; its semantics (hookspec/hookimpl, first-result, all-results, `tryfirst`/`trylast`, `hookwrapper`) cover every hook pattern this package needs. It also handles entry-point discovery, plugin blocking, and introspection (`pm.list_name_plugin()`) out of the box. Using it for hooks is strictly better than rolling our own callback list — and it gives `confiq` a familiar surface for any developer who has written a pytest plugin.
 
-4. **pydantic-settings' precedence model is the closest existing prior art**, and we should not re-invent it: per the pydantic-settings docs (`docs.pydantic.dev/2.0/usage/pydantic_settings/`), `settings_customise_sources` *"takes four callables as arguments and returns any number of callables as a tuple. ... The order of the returned callables decides the priority of inputs; first item is the highest priority."* We generalize this to an ordered, re-sortable list of `ConfigSource` instances. Issue #351 (*"`AliasChoices` order overrides `settings_customise_sources` priority"*) is a useful warning that precedence interactions with field aliases can surprise users — we sidestep this by keeping merge purely structural.
+4. **pydantic-settings' precedence model is the closest existing prior art**, and we should not re-invent it: per the pydantic-settings docs (`docs.pydantic.dev/2.0/usage/pydantic_settings/`), `settings_customise_sources` _"takes four callables as arguments and returns any number of callables as a tuple. ... The order of the returned callables decides the priority of inputs; first item is the highest priority."_ We generalize this to an ordered, re-sortable list of `ConfigSource` instances. Issue #351 (_"`AliasChoices` order overrides `settings_customise_sources` priority"_) is a useful warning that precedence interactions with field aliases can surprise users — we sidestep this by keeping merge purely structural.
 
 5. **OmegaConf is explicitly "not thread-safe"** per maintainer @omry in `omry/omegaconf` Discussion #1116. That is decisive: do not borrow its lazy-interpolation model. Dynaconf's `environments=True` is a known footgun (Discussion #956). Neither should be emulated.
 
-6. **For async, `contextvars` is mandatory, not optional.** The stdlib docs warn outright: *"Context managers that have state should use Context Variables instead of threading.local() to prevent their state from bleeding to other code unexpectedly, when used in concurrent code."* (`docs.python.org/3/library/contextvars.html`). PEP 567 guarantees `ContextVar` is inherited by `asyncio.Task` at creation. Per-task config overrides therefore use `ContextVar`, period.
+6. **For async, `contextvars` is mandatory, not optional.** The stdlib docs warn outright: _"Context managers that have state should use Context Variables instead of threading.local() to prevent their state from bleeding to other code unexpectedly, when used in concurrent code."_ (`docs.python.org/3/library/contextvars.html`). PEP 567 guarantees `ContextVar` is inherited by `asyncio.Task` at creation. Per-task config overrides therefore use `ContextVar`, period.
 
-7. **A real RW lock is overkill for the read path.** Éric Larivière's README for `elarivie/pyReaderWriterLock` (`github.com/elarivie/pyReaderWriterLock/blob/master/README.md`) notes that *"Downgradable classes come with a theoretical ~20% negative effect on performance for acquiring and releasing locks."* For a hot path that just reads a single attribute, even an uncontended RLock acquisition is wasted work. The atomic-reference-swap on a frozen snapshot gets you the same guarantees for free.
+7. **A real RW lock is overkill for the read path.** Éric Larivière's README for `elarivie/pyReaderWriterLock` (`github.com/elarivie/pyReaderWriterLock/blob/master/README.md`) notes that _"Downgradable classes come with a theoretical ~20% negative effect on performance for acquiring and releasing locks."_ For a hot path that just reads a single attribute, even an uncontended RLock acquisition is wasted work. The atomic-reference-swap on a frozen snapshot gets you the same guarantees for free.
 
 ## Details
 
@@ -30,15 +30,15 @@
 
 The brief asks for "loguru for config." That framing is a hard constraint that drives every architectural choice. The North Stars:
 
-1. **One blessed object, many handlers — like loguru.** loguru exposes a single pre-configured `logger`; all sinks are added/removed against it. The loguru source confirms this: `_logger.py` instantiates one `Core` at import time; the docs state *"There is only one logger, so there is no need to retrieve one before usage."* We mirror this with one importable `config: Config` (`from confiq import config`).
+1. **One blessed object, many handlers — like loguru.** loguru exposes a single pre-configured `logger`; all sinks are added/removed against it. The loguru source confirms this: `_logger.py` instantiates one `Core` at import time; the docs state _"There is only one logger, so there is no need to retrieve one before usage."_ We mirror this with one importable `config: Config` (`from confiq import config`).
 
-2. **A pluggable registry of source classes — like fsspec.** fsspec maintains `known_implementations` mapping a `protocol` string to a `package.module.Class` *plus* an `err` string explaining how to install the missing optional dependency. Discovery is by `entry_points` (group `fsspec.specs`); the registry itself is `types.MappingProxyType(_registry)` — publicly immutable, internally mutable. We copy this for config sources.
+2. **A pluggable registry of source classes — like fsspec.** fsspec maintains `known_implementations` mapping a `protocol` string to a `package.module.Class` _plus_ an `err` string explaining how to install the missing optional dependency. Discovery is by `entry_points` (group `fsspec.specs`); the registry itself is `types.MappingProxyType(_registry)` — publicly immutable, internally mutable. We copy this for config sources.
 
-3. **A pluggy-based hook system for stateless extension points — like pytest.** Where fsspec's "register a class" pattern shines for sources (each is an *instance* with state), it's awkward for things like "which loader handles `.yaml`?" or "transform the merged dict before validation." These are exactly pluggy's wheelhouse. `confiq` defines hookspecs for `load_file`, `get_schema_adapter`, `before_load`, `after_merge`, `before_publish`, and `on_reload`. Third parties register hookimpls via the `confiq` entry-point group and get pytest-grade plugin ergonomics for free.
+3. **A pluggy-based hook system for stateless extension points — like pytest.** Where fsspec's "register a class" pattern shines for sources (each is an _instance_ with state), it's awkward for things like "which loader handles `.yaml`?" or "transform the merged dict before validation." These are exactly pluggy's wheelhouse. `confiq` defines hookspecs for `load_file`, `get_schema_adapter`, `before_load`, `after_merge`, `before_publish`, and `on_reload`. Third parties register hookimpls via the `confiq` entry-point group and get pytest-grade plugin ergonomics for free.
 
 4. **Type-first, pydantic-native.** Configuration without a schema is a footgun. We treat a user-supplied schema (`pydantic.BaseModel`, optionally `@dataclass` or `TypedDict`) as the source of truth. `Config` is generic in that schema; `Config[Settings]` gives full IDE autocomplete.
 
-5. **Thread safety by default; deadlock avoidance as a design discipline.** loguru's `_handler.py` ships a `_protected_lock` that fast-fails with `RuntimeError("Could not acquire internal lock because it was already in use (deadlock avoided)")` if a thread re-enters the same lock. We adopt the same posture and choose immutable snapshot + atomic reference swap so the *hot path* of `config.get()` is lock-free.
+5. **Thread safety by default; deadlock avoidance as a design discipline.** loguru's `_handler.py` ships a `_protected_lock` that fast-fails with `RuntimeError("Could not acquire internal lock because it was already in use (deadlock avoided)")` if a thread re-enters the same lock. We adopt the same posture and choose immutable snapshot + atomic reference swap so the _hot path_ of `config.get()` is lock-free.
 
 6. **Precedence is a contract.** `CLI > env > file > defaults` is the precedence used by pydantic-settings and twelve-factor tools. Deterministic, ordered list of sources merged by deep-update — same shape as pydantic-settings' `settings_customise_sources`, generalized.
 
@@ -47,6 +47,7 @@ The brief asks for "loguru for config." That framing is a hard constraint that d
 8. **Optional dependencies as features.** Base is stdlib-only except for `pydantic` and `pluggy`. YAML, TOML on 3.10−, click, typer, watchdog, boto3, hvac, etc. are behind extras. Missing extras fail with a clear `MissingDependencyError`, mirroring fsspec's `err` field.
 
 **What we explicitly are not doing:**
+
 - No YAML interpolation DSL (`${...}`) à la OmegaConf. OmegaConf is "not thread-safe" per maintainer @omry, and interpolation introduces stateful, order-dependent evaluation that fights an immutable-snapshot design.
 - No implicit environment switching (Dynaconf `[development] / [production]`). Multi-env is achievable by composing multiple `FileSource` instances in a precedence chain.
 - No `dict` subclassing. Public surface is `config.get("a.b.c")` and `config.snapshot()`, returning typed models or plain values — never a mutable proxy.
@@ -240,7 +241,7 @@ async def handler(request):
         await do_work()
 ```
 
-`override` uses `contextvars.ContextVar`. Per the stdlib docs (`docs.python.org/3/library/contextvars.html`): *"Context managers that have state should use Context Variables instead of threading.local() to prevent their state from bleeding to other code unexpectedly, when used in concurrent code."*
+`override` uses `contextvars.ContextVar`. Per the stdlib docs (`docs.python.org/3/library/contextvars.html`): _"Context managers that have state should use Context Variables instead of threading.local() to prevent their state from bleeding to other code unexpectedly, when used in concurrent code."_
 
 **3.8 A third-party plugin (pluggy-style)**
 
@@ -270,7 +271,7 @@ redact-secrets = "my_redacting_plugin:RedactSecrets"
 
 Sources at equal priority are merged in the order they are added (Python's `sort` is stable). To make one file override another on shared keys, assign it a higher numeric priority.
 
-*Environment-based layering (base → env-specific → local):*
+_Environment-based layering (base → env-specific → local):_
 
 ```python
 import os
@@ -290,7 +291,7 @@ config\
 
 `config/production.yaml` values shadow `config/base.yaml` on any shared key; `config/local.yaml` shadows both.
 
-*Domain split (app + database + cache, all additive at equal priority):*
+_Domain split (app + database + cache, all additive at equal priority):_
 
 ```python
 config\
@@ -304,7 +305,7 @@ config\
 
 All three files deep-merge into a single dict. A key that appears in both `app.yaml` and `database.yaml` resolves in favour of `database.yaml` (added last among equals).
 
-*`DictSource` for testing and programmatic injection:*
+_`DictSource` for testing and programmatic injection:_
 
 ```python
 from confiq import Config
@@ -1196,16 +1197,16 @@ See `docs/decisions/0001-lock-free-reads-via-immutable-snapshots.md` for the ful
 
 **5.2 Locking strategy in one table**
 
-| Operation | Locking | Why |
-|---|---|---|
-| `config.get(...)` / `config.snapshot()` | **none** | reads one attribute |
-| `config.override(...)` | none (uses `ContextVar`) | async-safe, no contention |
-| `config.bind(schema)` | `threading.Lock` | rare, must serialize w/ reload |
-| `config.add_source(...)` | `threading.Lock` | same |
-| `config.reload()` | `threading.Lock` | same |
-| `on_reload` hookimpls | none (daemon thread, outside lock) | prevents reentrancy deadlocks |
-| `before_publish` hookimpls | inside `threading.Lock` | invariant checks must run before swap |
-| `after_merge` hookimpls | inside `threading.Lock` | runs as part of build |
+| Operation                               | Locking                            | Why                                   |
+| --------------------------------------- | ---------------------------------- | ------------------------------------- |
+| `config.get(...)` / `config.snapshot()` | **none**                           | reads one attribute                   |
+| `config.override(...)`                  | none (uses `ContextVar`)           | async-safe, no contention             |
+| `config.bind(schema)`                   | `threading.Lock`                   | rare, must serialize w/ reload        |
+| `config.add_source(...)`                | `threading.Lock`                   | same                                  |
+| `config.reload()`                       | `threading.Lock`                   | same                                  |
+| `on_reload` hookimpls                   | none (daemon thread, outside lock) | prevents reentrancy deadlocks         |
+| `before_publish` hookimpls              | inside `threading.Lock`            | invariant checks must run before swap |
+| `after_merge` hookimpls                 | inside `threading.Lock`            | runs as part of build                 |
 
 **5.3 The atomic-swap pattern**
 
@@ -1222,25 +1223,25 @@ Same idea as load-acquire/store-release on a pointer, used by persistent data st
 
 A naive design has subscribers run inline inside the write lock. That deadlocks the moment a subscriber tries to read or mutate config. Two real-world bug reports make this pattern-instructive:
 
-- **Loguru Issue #231**, *"Bug - Deadlock when using multithreaded & multiprocessing Environment"*, opened by @shachakz on Mar 30, 2020 against loguru 0.4.1 — multiprocessing forks while a handler's `_lock` is held by another thread → child deadlocks.
-- **pydantic-settings Issue #351**, *"`AliasChoices` order overrides `settings_customise_sources` priority"* — a precedence-interaction bug that demonstrates how subtle ordering hooks can be.
+- **Loguru Issue #231**, _"Bug - Deadlock when using multithreaded & multiprocessing Environment"_, opened by @shachakz on Mar 30, 2020 against loguru 0.4.1 — multiprocessing forks while a handler's `_lock` is held by another thread → child deadlocks.
+- **pydantic-settings Issue #351**, _"`AliasChoices` order overrides `settings_customise_sources` priority"_ — a precedence-interaction bug that demonstrates how subtle ordering hooks can be.
 
 Our design:
 
-1. The write builds the new snapshot, **publishes** it via atomic store, *then* spawns a daemon thread to dispatch the `on_reload` hook.
+1. The write builds the new snapshot, **publishes** it via atomic store, _then_ spawns a daemon thread to dispatch the `on_reload` hook.
 2. Hookimpls receive `(old_model, new_model)` — they don't have to call `config.get()`, removing one footgun.
-3. If a hookimpl re-enters the write path, the reentrancy guard fires loudly — exactly what loguru's `_protected_lock` does. Verbatim from `github.com/Delgan/loguru/blob/master/loguru/_handler.py`: *"Could not acquire internal lock because it was already in use (deadlock avoided). This likely happened because the logger was re-used inside a sink, a signal handler or a '__del__' method."* We borrow the message wording and the failure mode.
+3. If a hookimpl re-enters the write path, the reentrancy guard fires loudly — exactly what loguru's `_protected_lock` does. Verbatim from `github.com/Delgan/loguru/blob/master/loguru/_handler.py`: _"Could not acquire internal lock because it was already in use (deadlock avoided). This likely happened because the logger was re-used inside a sink, a signal handler or a '**del**' method."_ We borrow the message wording and the failure mode.
 4. Pluggy itself propagates exceptions by default. We catch at the daemon-thread boundary so one bad subscriber doesn't crash the notifier.
 
 **5.5 Async (asyncio) compatibility**
 
 - **Concurrent reads from coroutines:** `config.get()` is sync and lock-free; coroutines can call it freely. No event-loop blocking.
-- **Per-task overrides:** must use `contextvars`, not `threading.local`. The stdlib docs are explicit: *"Context managers that have state should use Context Variables instead of threading.local() to prevent their state from bleeding to other code unexpectedly, when used in concurrent code."* (`docs.python.org/3/library/contextvars.html`). We use `ContextVar` for `config.override(...)`. Each `asyncio.Task` inherits its parent's context at creation (PEP 567).
+- **Per-task overrides:** must use `contextvars`, not `threading.local`. The stdlib docs are explicit: _"Context managers that have state should use Context Variables instead of threading.local() to prevent their state from bleeding to other code unexpectedly, when used in concurrent code."_ (`docs.python.org/3/library/contextvars.html`). We use `ContextVar` for `config.override(...)`. Each `asyncio.Task` inherits its parent's context at creation (PEP 567).
 - **Async reload triggers:** the write path is sync. From async, do `await loop.run_in_executor(None, config.reload)`. Reload is rare enough that the threadpool detour is fine. For fully-async needs, `aiorwlock` is the right tool.
 
 **5.6 Why `threading.Lock` (not `RLock`) for the write lock?**
 
-`RLock` would *allow* the same thread to re-acquire — convenient, but it would *hide* the bug we want to surface (a hookimpl synchronously mutating config). loguru pairs a non-reentrant lock with a `threading.local` reentrancy detector for exactly this reason; we follow suit.
+`RLock` would _allow_ the same thread to re-acquire — convenient, but it would _hide_ the bug we want to surface (a hookimpl synchronously mutating config). loguru pairs a non-reentrant lock with a `threading.local` reentrancy detector for exactly this reason; we follow suit.
 
 ### 6. Pydantic integration in depth
 
@@ -1263,7 +1264,7 @@ s.database.host         # autocompletes
 config.reprioritize_sources(key=custom_key)
 ```
 
-This is the equivalent of pydantic-settings' `settings_customise_sources`. The pydantic-settings docs (`docs.pydantic.dev/2.0/usage/pydantic_settings/`) state: *"settings_customise_sources takes four callables as arguments and returns any number of callables as a tuple. ... The order of the returned callables decides the priority of inputs; first item is the highest priority."* `reprioritize_sources` acquires the write lock and rebuilds the snapshot, keeping the operation safe under concurrent reads.
+This is the equivalent of pydantic-settings' `settings_customise_sources`. The pydantic-settings docs (`docs.pydantic.dev/2.0/usage/pydantic_settings/`) state: _"settings_customise_sources takes four callables as arguments and returns any number of callables as a tuple. ... The order of the returned callables decides the priority of inputs; first item is the highest priority."_ `reprioritize_sources` acquires the write lock and rebuilds the snapshot, keeping the operation safe under concurrent reads.
 
 **6.3 Partial updates against a schema**
 
@@ -1283,7 +1284,7 @@ class MySettings(BaseSettings): ...
 config.add_source(PydanticSettingsSource(MySettings))
 ```
 
-pydantic-settings is the right tool when you want its env/secrets/cli wiring (it ships `AWSSecretsManagerSettingsSource`, `AzureKeyVaultSettingsSource`, `GoogleSecretManagerSettingsSource`, `CliSettingsSource`, etc.); `confiq` adds the *layering, snapshotting, watching, and pluggable cloud sources* around it.
+pydantic-settings is the right tool when you want its env/secrets/cli wiring (it ships `AWSSecretsManagerSettingsSource`, `AzureKeyVaultSettingsSource`, `GoogleSecretManagerSettingsSource`, `CliSettingsSource`, etc.); `confiq` adds the _layering, snapshotting, watching, and pluggable cloud sources_ around it.
 
 ### 7. Optional dependency structure (`pyproject.toml`)
 
@@ -1342,8 +1343,8 @@ Notes:
 
 - **`pydantic` and `pluggy` are the only mandatory deps.** Defensible: pydantic is fast (Rust core), widely installed, and obviates ~80% of the validation/coercion code competing libraries reinvent. Pluggy is tiny (no transitive deps), maintained by the pytest team, and gives us pytest-grade plugin ergonomics for free.
 - **TOML on 3.10:** Python 3.11 ships `tomllib`; on 3.10 the `toml` extra installs `tomli`. The pluggy `toml_loader` hookimpl handles both.
-- **`all` is a recursive extra.** Per Hynek Schlawack's "Recursive Optional Dependencies in Python" (`hynek.me/articles/python-recursive-optional-dependencies/`): *"Since pip 21.2 you can refer to your own project in your optional dependencies."*
-- **Two entry-point groups, two purposes.** `confiq.sources` registers *classes* (fsspec-style); `confiq` registers *hookimpl plugins* (pluggy-style). A third-party package can use either or both.
+- **`all` is a recursive extra.** Per Hynek Schlawack's "Recursive Optional Dependencies in Python" (`hynek.me/articles/python-recursive-optional-dependencies/`): _"Since pip 21.2 you can refer to your own project in your optional dependencies."_
+- **Two entry-point groups, two purposes.** `confiq.sources` registers _classes_ (fsspec-style); `confiq` registers _hookimpl plugins_ (pluggy-style). A third-party package can use either or both.
 
 ### 8. Plugin systems: two patterns, one mental model
 
@@ -1351,7 +1352,7 @@ Notes:
 
 **8.1 Source classes (fsspec-style) — for instantiable things with state**
 
-Use when your plugin is a *thing the user constructs and configures*: a database client, a Vault session, an HTTP poller. Each instance has its own state and lifecycle.
+Use when your plugin is a _thing the user constructs and configures_: a database client, a Vault session, an HTTP poller. Each instance has its own state and lifecycle.
 
 ```python
 # confiq-redis/source.py
@@ -1380,6 +1381,7 @@ redis = "confiq_redis.source:RedisSource"
 ```
 
 User-facing:
+
 ```python
 from confiq import config, create_source
 config.add_source(create_source("redis", url="redis://localhost:6379", key="myapp/config"))
@@ -1387,7 +1389,7 @@ config.add_source(create_source("redis", url="redis://localhost:6379", key="myap
 
 **8.2 Hookimpls (pluggy-style) — for stateless multi-participant logic**
 
-Use when your plugin *participates in a coordinated event*: "redact this dict," "validate this snapshot," "log every reload."
+Use when your plugin _participates in a coordinated event_: "redact this dict," "validate this snapshot," "log every reload."
 
 ```python
 # confiq-redact/plugin.py
@@ -1409,52 +1411,52 @@ redact-secrets = "confiq_redact.plugin:RedactSecrets"
 
 **8.3 The rule of thumb**
 
-| You want to... | Use |
-|---|---|
-| Add a new source of config (Redis, custom KV store, REST endpoint) | source class + `confiq.sources` entry point |
-| Add a new file format (JSON5, HCL, properties) | hookimpl on `confiq_load_file` |
-| Add a new schema type (attrs, msgspec, marshmallow) | hookimpl on `confiq_get_schema_adapter` |
-| Transform the merged dict before validation | hookimpl on `confiq_after_merge` |
-| Validate or log every config change | hookimpl on `confiq_before_publish` / `confiq_on_reload` |
+| You want to...                                                     | Use                                                      |
+| ------------------------------------------------------------------ | -------------------------------------------------------- |
+| Add a new source of config (Redis, custom KV store, REST endpoint) | source class + `confiq.sources` entry point              |
+| Add a new file format (JSON5, HCL, properties)                     | hookimpl on `confiq_load_file`                           |
+| Add a new schema type (attrs, msgspec, marshmallow)                | hookimpl on `confiq_get_schema_adapter`                  |
+| Transform the merged dict before validation                        | hookimpl on `confiq_after_merge`                         |
+| Validate or log every config change                                | hookimpl on `confiq_before_publish` / `confiq_on_reload` |
 
-This is exactly the pytest mental model: there are *fixtures* (instances you compose) and there are *hooks* (events you participate in). They're different tools.
+This is exactly the pytest mental model: there are _fixtures_ (instances you compose) and there are _hooks_ (events you participate in). They're different tools.
 
 ### 9. Comparison with existing libraries
 
-| Concern | **confiq (this design)** | Dynaconf | pydantic-settings | Hydra/OmegaConf | python-decouple |
-|---|---|---|---|---|---|
-| **One global object** | yes (loguru-style) | yes (`from dynaconf import settings`) | no — you instantiate `Settings()` | per-`@hydra.main` | yes (`config`) |
-| **Pluggable source registry** | **yes (entry points, fsspec-style)** | partial (`core_loaders`, custom loaders) | yes (`settings_customise_sources`) | composable but not registry-based | no |
-| **First-class plugin framework** | **yes (pluggy)** | no | no | no | no |
-| **Cloud sources** | optional extras (AWS/GCP/Azure/Vault/Consul/etcd) | Vault, Redis built-in | AWS, GCP, Azure source classes built in | none built-in | none |
-| **Pydantic-native** | **yes** (generic `Config[T]`) | optional integration | **yes** (it *is* pydantic) | no (dataclasses/attrs) | no |
-| **Schema validation** | pydantic / dataclass / TypedDict / extensible via pluggy | rule-based `Validator(...)` | pydantic | dataclass/attrs runtime | manual `cast=` |
-| **Thread safety** | **explicit, immutable snapshot + atomic swap** | unspecified | unspecified (per-instance, no shared state) | **"OmegaConf is not thread-safe" (maintainer @omry, Discussion #1116)** | unspecified |
-| **Live reload** | watchdog-based, opt-in | yes | no | no | no |
-| **Subscribers / observers** | **yes (via `on_reload` pluggy hook)** | no | no | no | no |
-| **Async (contextvars) overrides** | **yes** | no | no | no | no |
-| **CLI parsing** | argparse default; click/typer extras | dynaconf CLI tool (not arg parsing) | argparse-style `cli_parse_args` (built in v2) | own override DSL (`+a=1`) | no |
-| **Precedence** | CLI>env>file>defaults (configurable) | layered envs + files (env-driven) | init>env>dotenv>secrets>defaults (configurable) | composition + overrides | env>file |
-| **Singleton-with-handlers** | **yes (loguru-style)** | yes | no | no | yes |
-| **Footgun count** | low (immutable snapshots) | medium (`environments=True` is viral; see Discussion #956) | low | medium (interpolations + non-thread-safe) | low |
+| Concern                           | **confiq (this design)**                                 | Dynaconf                                                   | pydantic-settings                               | Hydra/OmegaConf                                                         | python-decouple |
+| --------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------- | --------------- |
+| **One global object**             | yes (loguru-style)                                       | yes (`from dynaconf import settings`)                      | no — you instantiate `Settings()`               | per-`@hydra.main`                                                       | yes (`config`)  |
+| **Pluggable source registry**     | **yes (entry points, fsspec-style)**                     | partial (`core_loaders`, custom loaders)                   | yes (`settings_customise_sources`)              | composable but not registry-based                                       | no              |
+| **First-class plugin framework**  | **yes (pluggy)**                                         | no                                                         | no                                              | no                                                                      | no              |
+| **Cloud sources**                 | optional extras (AWS/GCP/Azure/Vault/Consul/etcd)        | Vault, Redis built-in                                      | AWS, GCP, Azure source classes built in         | none built-in                                                           | none            |
+| **Pydantic-native**               | **yes** (generic `Config[T]`)                            | optional integration                                       | **yes** (it _is_ pydantic)                      | no (dataclasses/attrs)                                                  | no              |
+| **Schema validation**             | pydantic / dataclass / TypedDict / extensible via pluggy | rule-based `Validator(...)`                                | pydantic                                        | dataclass/attrs runtime                                                 | manual `cast=`  |
+| **Thread safety**                 | **explicit, immutable snapshot + atomic swap**           | unspecified                                                | unspecified (per-instance, no shared state)     | **"OmegaConf is not thread-safe" (maintainer @omry, Discussion #1116)** | unspecified     |
+| **Live reload**                   | watchdog-based, opt-in                                   | yes                                                        | no                                              | no                                                                      | no              |
+| **Subscribers / observers**       | **yes (via `on_reload` pluggy hook)**                    | no                                                         | no                                              | no                                                                      | no              |
+| **Async (contextvars) overrides** | **yes**                                                  | no                                                         | no                                              | no                                                                      | no              |
+| **CLI parsing**                   | argparse default; click/typer extras                     | dynaconf CLI tool (not arg parsing)                        | argparse-style `cli_parse_args` (built in v2)   | own override DSL (`+a=1`)                                               | no              |
+| **Precedence**                    | CLI>env>file>defaults (configurable)                     | layered envs + files (env-driven)                          | init>env>dotenv>secrets>defaults (configurable) | composition + overrides                                                 | env>file        |
+| **Singleton-with-handlers**       | **yes (loguru-style)**                                   | yes                                                        | no                                              | no                                                                      | yes             |
+| **Footgun count**                 | low (immutable snapshots)                                | medium (`environments=True` is viral; see Discussion #956) | low                                             | medium (interpolations + non-thread-safe)                               | low             |
 
 **Where this package fits:** pydantic-settings' typed ergonomics + loguru's "one importable thing" ergonomics + fsspec's pluggable cloud-source story + pluggy's pytest-grade extension model + explicit, documented thread safety. The existing libraries each miss at least one of those five. This package's reason to exist is the union.
 
 ### 10. Open questions & trade-offs
 
-1. **`Config` as class or module-level singleton?** *Choice: instance of a class with one canonical pre-built instance exposed as `confiq.config`.* Mirrors loguru exactly, allows testing (construct your own `Config()`), avoids module-level mutable-state gymnastics. Cost: users may accidentally construct multiple instances — documented; `confiq.get_default_config()` is the always-right answer.
+1. **`Config` as class or module-level singleton?** _Choice: instance of a class with one canonical pre-built instance exposed as `confiq.config`._ Mirrors loguru exactly, allows testing (construct your own `Config()`), avoids module-level mutable-state gymnastics. Cost: users may accidentally construct multiple instances — documented; `confiq.get_default_config()` is the always-right answer.
 
-2. **Pluggy as a hard dep.** *Choice: yes.* See `docs/decisions/0002-pluggy-as-plugin-framework.md`.
+2. **Pluggy as a hard dep.** _Choice: yes._ See `docs/decisions/0002-pluggy-as-plugin-framework.md`.
 
-3. **Pydantic as a hard dep.** *Choice: yes.* See `docs/decisions/0005-pydantic-as-required-dependency.md`.
+3. **Pydantic as a hard dep.** _Choice: yes._ See `docs/decisions/0005-pydantic-as-required-dependency.md`.
 
-4. **Two extension surfaces (source classes + pluggy hooks) — is that confusing?** *Choice: yes, two, and document the rule clearly.* See `docs/decisions/0003-dual-extension-surfaces.md`. The §8.3 table is the canonical quick-reference.
+4. **Two extension surfaces (source classes + pluggy hooks) — is that confusing?** _Choice: yes, two, and document the rule clearly._ See `docs/decisions/0003-dual-extension-surfaces.md`. The §8.3 table is the canonical quick-reference.
 
-5. **Immutable snapshots vs. mutable Config + RWLock.** *Choice: snapshots.* See `docs/decisions/0001-lock-free-reads-via-immutable-snapshots.md`.
+5. **Immutable snapshots vs. mutable Config + RWLock.** _Choice: snapshots._ See `docs/decisions/0001-lock-free-reads-via-immutable-snapshots.md`.
 
-6. **List merging: replace or concatenate?** *Choice: replace.* See `docs/decisions/0004-deep-merge-list-replacement-semantics.md`.
+6. **List merging: replace or concatenate?** _Choice: replace._ See `docs/decisions/0004-deep-merge-list-replacement-semantics.md`.
 
-7. **Live reload by default?** *Choice: off.* `watch=True` per file. "Config is immutable for the process lifetime" is the safer default. The `on_reload` hook and `config.reload()` are always available.
+7. **Live reload by default?** _Choice: off._ `watch=True` per file. "Config is immutable for the process lifetime" is the safer default. The `on_reload` hook and `config.reload()` are always available.
 
 8. **Built-in HTTP/etcd long-poll watcher?** Not in v1. The `ConfigSource.watch(on_change)` hook is in the protocol; extras can implement it later.
 
@@ -1479,7 +1481,7 @@ This is exactly the pytest mental model: there are *fixtures* (instances you com
 
 **Decisions to lock in now (not negotiable later):**
 
-- One global `config` object. Don't ship a "loggers per module" API; users who want isolation construct a fresh `Config()`. (loguru learned this the hard way; their docs are now explicit: *"Since Loguru is designed on the use of a single logger, it is fundamentally not possible to create different loggers for multiple modules"*.)
+- One global `config` object. Don't ship a "loggers per module" API; users who want isolation construct a fresh `Config()`. (loguru learned this the hard way; their docs are now explicit: _"Since Loguru is designed on the use of a single logger, it is fundamentally not possible to create different loggers for multiple modules"_.)
 - `ConfigSource.load()` returns a plain `dict`. Don't let sources return models. Validation happens in one place — the schema adapter, itself selected via pluggy.
 - The hot read path takes no locks and invokes no pluggy hooks. If you find yourself adding either, you've taken the wrong turn.
 - Two extension surfaces (source classes via fsspec registry, hookimpls via pluggy). Don't collapse them — they solve different problems.
@@ -1493,12 +1495,12 @@ This is exactly the pytest mental model: there are *fixtures* (instances you com
 
 ## Caveats
 
-- **The atomic-swap argument assumes CPython with the GIL.** On a free-threaded build (PEP 703, optional in 3.13+, becoming default later), `STORE_ATTR` is *still* atomic for a single object reference per the Python data model, but the broader argument (other bytecodes are atomic by virtue of the GIL) loosens. The design is *still correct* — frozen snapshots + a single reference store — but the merge path may need an explicit lock around dict reads if a custom source mutates a shared dict concurrently. The recommendation: keep the simple model; add a free-threading audit in v1.1.
+- **The atomic-swap argument assumes CPython with the GIL.** On a free-threaded build (PEP 703, optional in 3.13+, becoming default later), `STORE_ATTR` is _still_ atomic for a single object reference per the Python data model, but the broader argument (other bytecodes are atomic by virtue of the GIL) loosens. The design is _still correct_ — frozen snapshots + a single reference store — but the merge path may need an explicit lock around dict reads if a custom source mutates a shared dict concurrently. The recommendation: keep the simple model; add a free-threading audit in v1.1.
 - **Pluggy's `firstresult=True` semantics are strict.** Once a hookimpl returns a non-None value, no further impls are called. This applies to `confiq_load_file` (one loader per suffix), `confiq_get_schema_adapter` (one adapter per type), and `confiq_after_merge` (one transformer wins). Plugin order matters; `tryfirst=True` / `trylast=True` on the hookimpl decorator is the explicit override mechanism. Document the convention clearly: "register your impl with `tryfirst=True` to take priority over the built-ins."
-- **Pydantic v2's behavior around generic models with `bound=BaseModel` has known sharp edges**, e.g. pydantic Issue #7562: serializing a generic with `bound=BaseModel` may produce an empty dict because pydantic treats the unparametrized form as `Any` for serialization. Users should *parametrize* the generic at the call site (`Config[Settings]`), not lean on the bound for runtime serialization.
+- **Pydantic v2's behavior around generic models with `bound=BaseModel` has known sharp edges**, e.g. pydantic Issue #7562: serializing a generic with `bound=BaseModel` may produce an empty dict because pydantic treats the unparametrized form as `Any` for serialization. Users should _parametrize_ the generic at the call site (`Config[Settings]`), not lean on the bound for runtime serialization.
 - **Live reload with watchdog has platform variance.** On Linux it uses `inotify`; on macOS `FSEvents`; on Windows `ReadDirectoryChangesW`; the fallback is `PollingObserver`. Editor save-then-rename patterns (Vim) can fire spurious events. The recommendation is debouncing the reload — the package should ship with a 100 ms debounce window.
-- **`pydantic-settings` precedence interacts with `AliasChoices` in ways that surprise users** (their Issue #351, *"`AliasChoices` order overrides `settings_customise_sources` priority"*). When we add a `PydanticSettingsSource` adapter, document this loudly: aliases inside the pydantic model are resolved before our precedence chain sees the values.
-- **OmegaConf is not interoperable for shared-state.** If a user passes a `DictConfig` into `add_source`, eagerly call `OmegaConf.to_container(cfg, resolve=True)` and store the plain dict. Holding a `DictConfig` reference is unsafe given the maintainer's explicit *"OmegaConf is not thread-safe"* statement (`omry/omegaconf` Discussion #1116).
+- **`pydantic-settings` precedence interacts with `AliasChoices` in ways that surprise users** (their Issue #351, _"`AliasChoices` order overrides `settings_customise_sources` priority"_). When we add a `PydanticSettingsSource` adapter, document this loudly: aliases inside the pydantic model are resolved before our precedence chain sees the values.
+- **OmegaConf is not interoperable for shared-state.** If a user passes a `DictConfig` into `add_source`, eagerly call `OmegaConf.to_container(cfg, resolve=True)` and store the plain dict. Holding a `DictConfig` reference is unsafe given the maintainer's explicit _"OmegaConf is not thread-safe"_ statement (`omry/omegaconf` Discussion #1116).
 - **`on_reload` hookimpl failures are swallowed (with a printed traceback).** This is intentional — config notifications must not bring down the application — but it does mean a silently-broken hookimpl is possible. Document this; consider a `strict_hooks=True` flag on `Config()` in v1.1 for users who want exceptions to propagate.
 - **The "recursive extra" syntax (`all = ["confiq[yaml,toml,...]"]`) requires pip ≥ 21.2.** Older pip will fail mysteriously. Document the minimum pip in the README.
 - **This document describes a v1 design, not a finished package.** The code is illustrative — runnable-looking, not yet runnable. Helpers like `_assert_unfrozen`, `_maybe_attach_watch`, `_explode_dots`, and `_parse_dotenv_file` are referenced but not shown in full; they are mechanical implementations of obvious behavior. Expect 1800–2400 SLOC for v1, not counting cloud-source extras.

@@ -50,8 +50,8 @@ class Config(Generic[T]):
         self._frozen = False
         # Per-instance ContextVar so multiple Config() objects don't share override
         # state. See ADR 0001.
-        self._override_var: contextvars.ContextVar[dict[str, Any] | None] = (
-            contextvars.ContextVar(f"confiq_override_{id(self)}", default=None)
+        self._override_var: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+            f"confiq_override_{id(self)}", default=None
         )
 
     # ─── public read API (LOCK-FREE) ─────────────────────────────────────────
@@ -176,9 +176,7 @@ class Config(Generic[T]):
         """
         from confiq.sources.env import EnvSource
 
-        return self.add_source(
-            EnvSource(prefix=prefix, delimiter=delimiter, dotenv=dotenv, priority=priority)
-        )
+        return self.add_source(EnvSource(prefix=prefix, delimiter=delimiter, dotenv=dotenv, priority=priority))
 
     def add_argparse(
         self,
@@ -194,9 +192,7 @@ class Config(Generic[T]):
         """
         from confiq.sources.argparse_source import ArgparseSource
 
-        return self.add_source(
-            ArgparseSource(namespace=namespace, argv=argv, priority=priority)
-        )
+        return self.add_source(ArgparseSource(namespace=namespace, argv=argv, priority=priority))
 
     def add_defaults_from_schema(self) -> Config[T]:
         """Add a `DefaultsSource` backed by the bound schema adapter as the lowest-priority layer. Returns `self`."""
@@ -274,6 +270,7 @@ class Config(Generic[T]):
                 self._pm.hook.confiq_on_reload(old_model=old_model, new_model=new_model)
             except Exception as exc:
                 import warnings
+
                 warnings.warn(
                     f"confiq: on_reload hook raised {type(exc).__name__}: {exc}",
                     RuntimeWarning,
@@ -284,9 +281,7 @@ class Config(Generic[T]):
 
     def _assert_unfrozen(self) -> None:
         if self._frozen:
-            raise RuntimeError(
-                "This Config instance is frozen. Construct a fresh Config() for mutation."
-            )
+            raise RuntimeError("This Config instance is frozen. Construct a fresh Config() for mutation.")
 
     def _maybe_attach_watch(self, src: Any) -> None:
         if not getattr(src, "watch_enabled", False):

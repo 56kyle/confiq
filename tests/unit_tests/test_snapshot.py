@@ -7,6 +7,7 @@ from confiq._snapshot import ConfigSnapshot
 
 def _make_snap(raw: dict, model=None, version: int = 1) -> ConfigSnapshot:
     from confiq._merge import _freeze
+
     return ConfigSnapshot(model=model, raw=_freeze(raw), version=version, sources=())
 
 

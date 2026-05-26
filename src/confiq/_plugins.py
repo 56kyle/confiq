@@ -22,11 +22,13 @@ def _make_plugin_manager() -> pluggy.PluginManager:
 def _register_optional_loaders(pm: pluggy.PluginManager) -> None:
     try:
         from confiq.loaders import yaml_loader
+
         pm.register(yaml_loader, name="confiq.builtin.yaml")
     except ImportError:
         pass
     try:
         from confiq.loaders import toml_loader
+
         pm.register(toml_loader, name="confiq.builtin.toml")
     except ImportError:
         pass
@@ -45,11 +47,7 @@ class _BuiltinLoaders:
 
 
 def _is_typeddict(tp: object) -> bool:
-    return (
-        isinstance(tp, type)
-        and hasattr(tp, "__required_keys__")
-        and hasattr(tp, "__optional_keys__")
-    )
+    return isinstance(tp, type) and hasattr(tp, "__required_keys__") and hasattr(tp, "__optional_keys__")
 
 
 class _BuiltinAdapters:
@@ -60,11 +58,14 @@ class _BuiltinAdapters:
 
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             from confiq.schema.pydantic_adapter import PydanticAdapter
+
             return PydanticAdapter(schema)
         if is_dataclass(schema):
             from confiq.schema.dataclass_adapter import DataclassAdapter
+
             return DataclassAdapter(schema)
         if _is_typeddict(schema):
             from confiq.schema.typeddict_adapter import TypedDictAdapter
+
             return TypedDictAdapter(schema)
         return None
