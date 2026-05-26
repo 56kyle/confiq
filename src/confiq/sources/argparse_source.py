@@ -56,9 +56,12 @@ def _parse_dotted(argv: list[str]) -> dict[str, Any]:
     i = 0
     while i < len(argv):
         a = argv[i]
+        if a == "--":
+            break
         if not a.startswith("--"):
             i += 1
             continue
+        raw_token: str = a
         a = a[2:]
         if "=" in a:
             k, v_str = a.split("=", 1)
@@ -72,5 +75,10 @@ def _parse_dotted(argv: list[str]) -> dict[str, Any]:
             else:
                 val = True
                 i += 1
-        set_nested_path(out, k.split("."), val)
+        if any(seg == "" for seg in k.split(".")):
+            raise ValueError(f"invalid argument key: {raw_token!r}")
+        try:
+            set_nested_path(out, k.split("."), val)
+        except (TypeError, AttributeError):
+            raise ValueError(f"argument '--{k}' conflicts with earlier value at an ancestor key")
     return out

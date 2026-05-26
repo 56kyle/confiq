@@ -91,6 +91,23 @@ class TestArgparseSource:
         result = src.load()
         assert result.get("host") == "remote" or result.get("port") is not None
 
+    def test_double_dash_sentinel_stops_parsing(self):
+        src = ArgparseSource(argv=["--debug", "--", "--not-a-flag"])
+        result = src.load()
+        assert result == {"debug": True}
+
+    def test_empty_segment_raises(self):
+        with pytest.raises(ValueError):
+            ArgparseSource(argv=["--foo..bar=value"]).load()
+
+    def test_empty_key_raises(self):
+        with pytest.raises(ValueError):
+            ArgparseSource(argv=["--=value"]).load()
+
+    def test_path_conflict_raises(self):
+        with pytest.raises(ValueError):
+            ArgparseSource(argv=["--foo=scalar", "--foo.bar=value"]).load()
+
 
 class TestCoerce:
     def test_true(self):
