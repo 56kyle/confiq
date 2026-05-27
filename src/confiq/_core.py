@@ -59,8 +59,8 @@ class Config(Generic[T]):
             version=0,
             sources=(),
         )
-        self._pm = _make_plugin_manager()
-        _register_optional_loaders(self._pm)
+        self._plugin_manager = _make_plugin_manager()
+        _register_optional_loaders(self._plugin_manager)
         self._frozen = False
         # Per-instance ContextVar so multiple Config() objects don't share override
         # state. See ADR 0001.
@@ -112,7 +112,7 @@ class Config(Generic[T]):
         with self._lock, self._reentry:
             self._assert_unfrozen()
             self._schema = schema
-            self._adapter = self._pm.hook.confiq_get_schema_adapter(schema=schema)
+            self._adapter = self._plugin_manager.hook.confiq_get_schema_adapter(schema=schema)
             if self._adapter is None:
                 raise TypeError(f"No registered adapter handles {schema!r}")
             self._rebuild_locked()
@@ -157,7 +157,7 @@ class Config(Generic[T]):
                 watch=watch,
                 file_format=file_format,
                 priority=priority,
-                plugin_manager=self._pm,
+                plugin_manager=self._plugin_manager,
             )
         )
 
@@ -232,15 +232,15 @@ class Config(Generic[T]):
 
     def register_plugin(self, plugin: Any, name: str | None = None) -> None:
         """Register a pluggy plugin with this config's plugin manager."""
-        self._pm.register(plugin, name=name)
+        self._plugin_manager.register(plugin, name=name)
 
     def unregister_plugin(self, plugin_or_name: Any) -> None:
         """Unregister a plugin by object or name."""
-        self._pm.unregister(plugin_or_name)
+        self._plugin_manager.unregister(plugin_or_name)
 
     def on_reload(self, fn: Callable[[Any, Any], None]) -> Callable[[Any, Any], None]:
         """Decorator: register a free function as an on_reload hookimpl."""
-        self._pm.register(_OnReloadAdapter(fn), name=f"on_reload:{fn.__qualname__}")
+        self._plugin_manager.register(_OnReloadAdapter(fn), name=f"on_reload:{fn.__qualname__}")
         return fn
 
     def reload(self) -> ConfigSnapshot[T]:
@@ -271,11 +271,11 @@ class Config(Generic[T]):
         merged: dict[str, Any] = {}
         sources_used: list[str] = []
         for src in self._sources:
-            self._pm.hook.confiq_before_load(source=src)
+            self._plugin_manager.hook.confiq_before_load(source=src)
             merged = deep_merge(merged, src.load())
             sources_used.append(src.protocol)
 
-        transformed = self._pm.hook.confiq_after_merge(merged=merged)
+        transformed = self._plugin_manager.hook.confiq_after_merge(merged=merged)
         if transformed is not None:
             merged = transformed
 
@@ -287,7 +287,7 @@ class Config(Generic[T]):
             sources=tuple(sources_used),
         )
 
-        self._pm.hook.confiq_before_publish(old_snapshot=old, new_snapshot=new_snap)
+        self._plugin_manager.hook.confiq_before_publish(old_snapshot=old, new_snapshot=new_snap)
         self._current = new_snap  # atomic reference swap — ADR 0001
         self._enqueue_notify(old.model, new_snap.model)
         return new_snap
@@ -295,7 +295,7 @@ class Config(Generic[T]):
     def _enqueue_notify(self, old_model: Any, new_model: Any) -> None:
         def _run() -> None:
             try:
-                self._pm.hook.confiq_on_reload(old_model=old_model, new_model=new_model)
+                self._plugin_manager.hook.confiq_on_reload(old_model=old_model, new_model=new_model)
             except Exception as exc:
                 import warnings
 
