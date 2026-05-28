@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextvars
 import copy
 import threading
+import warnings
 from contextlib import contextmanager
 from types import MappingProxyType
 from typing import Any
@@ -247,6 +248,7 @@ class Config(Generic[T]):
         """Force a full rebuild under the write lock. Returns the new `ConfigSnapshot`."""
         with self._lock, self._reentry:
             return self._rebuild_locked()
+        raise RuntimeError("Failed to rebuild a new ConfigSnapshot.")
 
     @contextmanager
     def override(self, **patches: Any) -> Iterator[Config[T]]:
@@ -275,7 +277,7 @@ class Config(Generic[T]):
             merged = deep_merge(merged, src.load())
             sources_used.append(src.protocol)
 
-        transformed = self._plugin_manager.hook.confiq_after_merge(merged=merged)
+        transformed: dict[str, Any] | None = self._plugin_manager.hook.confiq_after_merge(merged=merged)
         if transformed is not None:
             merged = transformed
 
@@ -297,7 +299,6 @@ class Config(Generic[T]):
             try:
                 self._plugin_manager.hook.confiq_on_reload(old_model=old_model, new_model=new_model)
             except Exception as exc:
-                import warnings
 
                 warnings.warn(
                     f"confiq: on_reload hook raised {type(exc).__name__}: {exc}",
