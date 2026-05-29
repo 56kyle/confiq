@@ -1,3 +1,4 @@
+"""Module containing built-in pluggy plugin implementations and the plugin manager factory used throughout the confiq package."""
 from __future__ import annotations
 
 from pathlib import Path

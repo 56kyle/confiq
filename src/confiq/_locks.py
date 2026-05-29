@@ -1,3 +1,4 @@
+"""Module containing the ReentrancyGuard threading primitive used throughout the confiq package."""
 from __future__ import annotations
 
 import threading

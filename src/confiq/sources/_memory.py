@@ -1,3 +1,5 @@
+"""Module containing the in-memory config source used throughout the confiq package."""
+
 from __future__ import annotations
 
 from typing import Any

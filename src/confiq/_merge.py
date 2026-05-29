@@ -1,3 +1,4 @@
+"""Module containing deep-merge and immutable-freeze utilities used throughout the confiq package."""
 from __future__ import annotations
 
 from collections.abc import Mapping

@@ -1,3 +1,4 @@
+"""Module containing the per-task config override context manager used throughout the confiq package."""
 from __future__ import annotations
 
 import contextvars

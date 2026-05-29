@@ -1,3 +1,4 @@
+"""Module containing the load, load_async, and ConfigHandle entrypoints used throughout the confiq package."""
 from __future__ import annotations
 
 import asyncio

@@ -1,3 +1,5 @@
+"""Module containing the environment variable config source used throughout the confiq package."""
+
 from __future__ import annotations
 
 import os

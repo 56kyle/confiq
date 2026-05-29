@@ -1,3 +1,4 @@
+"""Module containing convenience helpers for loading config from env vars and files used by the confiq package."""
 from __future__ import annotations
 
 from pathlib import Path

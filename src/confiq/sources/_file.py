@@ -1,3 +1,5 @@
+"""Module containing the file-based config source used throughout the confiq package."""
+
 from __future__ import annotations
 
 from pathlib import Path

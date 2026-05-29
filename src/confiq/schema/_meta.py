@@ -1,3 +1,5 @@
+"""Module containing the field_meta helper used throughout the confiq package."""
+
 from __future__ import annotations
 
 import typing

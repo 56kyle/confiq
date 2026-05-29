@@ -1,3 +1,5 @@
+"""Subpackage containing configuration source implementations used throughout the confiq package."""
+
 from __future__ import annotations
 
 from confiq.sources._cli import CliSource

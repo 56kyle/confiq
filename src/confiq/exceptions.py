@@ -1,3 +1,4 @@
+"""Module containing exception types used throughout the confiq package."""
 from __future__ import annotations
 
 from pydantic_core import InitErrorDetails

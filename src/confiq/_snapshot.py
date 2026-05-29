@@ -1,3 +1,4 @@
+"""Module containing the ResolvedSnapshot dataclass used throughout the confiq package."""
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,3 +1,5 @@
+"""Module containing the CLI argument config source used throughout the confiq package."""
+
 from __future__ import annotations
 
 import sys

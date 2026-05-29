@@ -1,3 +1,4 @@
+"""Module containing the source-merging and schema-field resolution logic used throughout the confiq package."""
 from __future__ import annotations
 
 import warnings

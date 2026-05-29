@@ -1,3 +1,5 @@
+"""Module containing the ConfigField annotation descriptor used throughout the confiq package."""
+
 from __future__ import annotations
 
 from collections.abc import Callable

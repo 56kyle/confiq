@@ -1,3 +1,5 @@
+"""Module containing the Source and AsyncSource protocols used throughout the confiq package."""
+
 from __future__ import annotations
 
 from typing import Any
