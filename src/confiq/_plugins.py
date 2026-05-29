@@ -8,7 +8,7 @@ import pluggy
 from confiq._hookspecs import ConfiqSpecs
 from confiq._hookspecs import SchemaAdapter
 from confiq._hookspecs import hookimpl
-from confiq.errors import SourceParseError
+from confiq.exceptions import SourceParseError
 
 
 class _JsonLoader:

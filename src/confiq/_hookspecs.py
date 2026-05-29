@@ -10,7 +10,7 @@ import pluggy
 
 
 if TYPE_CHECKING:
-    from confiq.errors import ConfiqError
+    from confiq.exceptions import ConfiqError
     from confiq.schema._field import ConfigField
 
 hookspec = pluggy.HookspecMarker("confiq")

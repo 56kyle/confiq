@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from confiq.errors import SourceParseError
-from confiq.errors import SourceUnavailableError
+from confiq.exceptions import SourceParseError
+from confiq.exceptions import SourceUnavailableError
 from confiq.sources._cli import CliSource
 from confiq.sources._env import EnvSource
 from confiq.sources._file import FileSource

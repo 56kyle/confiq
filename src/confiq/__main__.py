@@ -8,8 +8,8 @@ from pathlib import Path
 import typer
 
 from confiq._load import load
-from confiq.errors import SourceParseError
-from confiq.errors import SourceUnavailableError
+from confiq.exceptions import SourceParseError
+from confiq.exceptions import SourceUnavailableError
 from confiq.sources._file import FileSource
 
 

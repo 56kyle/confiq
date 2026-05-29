@@ -6,8 +6,8 @@ from typing import Any
 import pluggy
 
 from confiq._plugins import _make_plugin_manager
-from confiq.errors import SourceParseError
-from confiq.errors import SourceUnavailableError
+from confiq.exceptions import SourceParseError
+from confiq.exceptions import SourceUnavailableError
 
 
 class FileSource:

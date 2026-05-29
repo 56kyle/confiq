@@ -6,7 +6,7 @@ import importlib
 import os
 from typing import Any
 
-from confiq.errors import SourceUnavailableError
+from confiq.exceptions import SourceUnavailableError
 
 
 _VAULT_TOKEN_ENV_VAR: str = "VAULT_TOKEN"

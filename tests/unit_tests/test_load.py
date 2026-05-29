@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from confiq._load import SchemalessConfig
 from confiq._load import load
 from confiq._load import load_async
-from confiq.errors import ConfigValidationError
+from confiq.exceptions import ConfigValidationError
 from confiq.sources._env import EnvSource
 from confiq.sources._file import FileSource
 from confiq.sources._memory import MemorySource

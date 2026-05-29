@@ -7,7 +7,7 @@ import importlib
 import json
 from typing import Any
 
-from confiq.errors import SourceUnavailableError
+from confiq.exceptions import SourceUnavailableError
 
 
 _DEFAULT_HOST: str = "127.0.0.1"

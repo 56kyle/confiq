@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from confiq._resolver import resolve
 from confiq._snapshot import ResolvedSnapshot
-from confiq.errors import ConflictingSourceError
+from confiq.exceptions import ConflictingSourceError
 from confiq.schema._field import ConfigField
 
 

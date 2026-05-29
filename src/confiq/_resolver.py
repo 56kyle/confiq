@@ -7,7 +7,7 @@ from typing import get_type_hints
 
 from confiq._merge import deep_merge
 from confiq._snapshot import ResolvedSnapshot
-from confiq.errors import ConflictingSourceError
+from confiq.exceptions import ConflictingSourceError
 from confiq.schema._meta import field_meta
 
 

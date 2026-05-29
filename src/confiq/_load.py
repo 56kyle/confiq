@@ -15,8 +15,8 @@ from pydantic import ValidationError
 from confiq._locks import ReentrancyGuard
 from confiq._plugins import _make_plugin_manager
 from confiq._resolver import resolve
-from confiq.errors import ConfigValidationError
-from confiq.errors import ConfiqError
+from confiq.exceptions import ConfigValidationError
+from confiq.exceptions import ConfiqError
 from confiq.sources._protocol import AsyncSource
 from confiq.sources._protocol import Source
 

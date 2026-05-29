@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from confiq.errors import ConfigLoadError
-from confiq.errors import ConfigValidationError
-from confiq.errors import ConfiqError
-from confiq.errors import ConflictingSourceError
-from confiq.errors import MissingConfigError
-from confiq.errors import PluginError
-from confiq.errors import SourceParseError
-from confiq.errors import SourceUnavailableError
+from confiq.exceptions import ConfigLoadError
+from confiq.exceptions import ConfigValidationError
+from confiq.exceptions import ConfiqError
+from confiq.exceptions import ConflictingSourceError
+from confiq.exceptions import MissingConfigError
+from confiq.exceptions import PluginError
+from confiq.exceptions import SourceParseError
+from confiq.exceptions import SourceUnavailableError
 
 
 def test_confiq_error_is_exception() -> None:

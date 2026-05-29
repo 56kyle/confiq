@@ -6,8 +6,8 @@ import importlib
 import json
 from typing import Any
 
-from confiq.errors import SourceParseError
-from confiq.errors import SourceUnavailableError
+from confiq.exceptions import SourceParseError
+from confiq.exceptions import SourceUnavailableError
 
 
 def _require(package: str, extra: str) -> None:
