@@ -3,83 +3,71 @@ from __future__ import annotations
 
 import importlib
 import json
-import sys
 from pathlib import Path
 
 import typer
 
-from confiq._core import Config
+from confiq._load import load
+from confiq.errors import SourceParseError
+from confiq.errors import SourceUnavailableError
+from confiq.sources._file import FileSource
 
 
 app: typer.Typer = typer.Typer(help="confiq — inspect and validate config files.")
-
 
 @app.command()
 def show(
     path: Path = typer.Argument(..., help="Config file to display (JSON, YAML, TOML, INI)."),
 ) -> None:
     """Pretty-print a config file's merged content."""
-    cfg = Config()
     try:
-        cfg.add_file(path)
-    except FileNotFoundError:
+        cfg = load(sources=[FileSource(path)])
+    except SourceUnavailableError:
         typer.echo(f"error: file not found: {path}", err=True)
         raise typer.Exit(1)
-    except ValueError as exc:
+    except SourceParseError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(1)
-
-    snap = cfg.snapshot()
-    typer.echo(json.dumps(snap.as_dict(), indent=2))
-
+    typer.echo(json.dumps(dict(cfg), indent=2))
 
 @app.command()
 def validate(
     path: Path = typer.Argument(..., help="Config file to validate."),
     schema: str | None = typer.Option(
-        None,
-        "--schema",
-        "-s",
+        None, "--schema", "-s",
         help="Dotted import path to a pydantic BaseModel, e.g. myapp.config:Settings.",
     ),
 ) -> None:
-    """Validate a config file, optionally against a pydantic schema.
-
-    Without --schema, confirms the file is parseable. With --schema, also
-    validates all required fields and types.
-    """
-    cfg = Config()
+    """Validate a config file, optionally against a pydantic schema."""
     try:
-        cfg.add_file(path)
-    except FileNotFoundError:
+        source = FileSource(path)
+        if schema is None:
+            load(sources=[source])
+        else:
+            module_path, _, class_name = schema.rpartition(":")
+            if not module_path or not class_name:
+                typer.echo(
+                    f"error: --schema must be 'module.path:ClassName', got {schema!r}",
+                    err=True,
+                )
+                raise typer.Exit(1)
+            try:
+                mod = importlib.import_module(module_path)
+                schema_cls = getattr(mod, class_name)
+            except (ImportError, AttributeError) as exc:
+                typer.echo(f"error: could not import schema {schema!r}: {exc}", err=True)
+                raise typer.Exit(1)
+            load(schema_cls, sources=[source])
+    except SourceUnavailableError:
         typer.echo(f"error: file not found: {path}", err=True)
         raise typer.Exit(1)
-    except ValueError as exc:
+    except SourceParseError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(1)
-
-    if schema is not None:
-        module_path, _, class_name = schema.rpartition(":")
-        if not module_path or not class_name:
-            typer.echo(
-                f"error: --schema must be in 'module.path:ClassName' form, got {schema!r}",
-                err=True,
-            )
-            raise typer.Exit(1)
-        try:
-            mod = importlib.import_module(module_path)
-            schema_cls = getattr(mod, class_name)
-        except (ImportError, AttributeError) as exc:
-            typer.echo(f"error: could not import schema {schema!r}: {exc}", err=True)
-            raise typer.Exit(1)
-        try:
-            cfg.bind(schema_cls)
-        except Exception as exc:
-            typer.echo(f"validation failed: {exc}", err=True)
-            raise typer.Exit(1)
-
+    except Exception as exc:
+        typer.echo(f"validation failed: {exc}", err=True)
+        raise typer.Exit(1)
     typer.echo("ok")
-
 
 if __name__ == "__main__":
     app()  # pragma: no cover

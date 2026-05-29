@@ -1,21 +1,21 @@
-"""Confiq — a thread-safe, pluggable configuration manager for Python."""
+"""confiq"""
+from __future__ import annotations
 
-from confiq._core import Config
 from confiq._hookspecs import hookimpl
-from confiq._registry import MissingDependencyError
-from confiq._registry import create_source
-from confiq._registry import registry
-from confiq._snapshot import ConfigSnapshot
+from confiq._load import ConfigHandle
+from confiq._load import SchemalessConfig
+from confiq._load import load
+from confiq._load import load_async
+from confiq.schema._field import ConfigField
+from confiq.sources._memory import MemorySource
 
-
-config: Config = Config()  # type: ignore[type-arg]
 
 __all__ = [
-    "Config",
-    "ConfigSnapshot",
-    "MissingDependencyError",
-    "config",
-    "create_source",
+    "ConfigField",
+    "ConfigHandle",
+    "MemorySource",
+    "SchemalessConfig",
     "hookimpl",
-    "registry",
+    "load",
+    "load_async",
 ]

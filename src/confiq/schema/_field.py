@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+from typing import Literal
+
+
+@dataclass(frozen=True)
+class ConfigField:
+    env: str | None = None
+    cli: str | None = None
+    file_key: str | None = None
+    secret: bool = False
+    parser: Callable[[str], Any] | None = None
+    sources: tuple[str, ...] | None = None
+    on_source_violation: Literal["raise", "warn_and_skip"] = "raise"
+    description: str | None = None
+    deprecated: str | None = None
