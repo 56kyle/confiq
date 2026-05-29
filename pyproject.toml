@@ -71,10 +71,9 @@ docs = [
 ]
 
 [project.entry-points."confiq.sources"]
-file     = "confiq.sources.file:FileSource"
-env      = "confiq.sources.env:EnvSource"
-argparse = "confiq.sources.argparse_source:ArgparseSource"
-dict     = "confiq.sources.dict_source:DictSource"
+file = "confiq.sources._file:FileSource"
+env  = "confiq.sources._env:EnvSource"
+cli  = "confiq.sources._cli:CliSource"
 
 [project.entry-points.confiq]
 
