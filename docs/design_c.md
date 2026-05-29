@@ -123,12 +123,19 @@ confiq/
 │   └── _meta.py         # field_meta(): reads Annotated metadata from a model class
 ├── sources/
 │   ├── __init__.py      # exports: Source, AsyncSource, MemorySource, EnvSource,
-│   │                    #          FileSource, CliSource
+│   │                    #          FileSource, CliSource, VaultSource,
+│   │                    #          AwsSecretsManagerSource, GcpSecretManagerSource,
+│   │                    #          AzureKeyVaultSource, ConsulSource
 │   ├── _protocol.py     # Source and AsyncSource protocols
 │   ├── _memory.py       # MemorySource
 │   ├── _env.py          # EnvSource
 │   ├── _file.py         # FileSource (dispatches via pluggy confiq_load_file hook)
-│   └── _cli.py          # CliSource (argparse-backed; auto-generates flags)
+│   ├── _cli.py          # CliSource (argparse-backed; auto-generates flags)
+│   ├── _aws.py          # AwsSecretsManagerSource (requires [aws] extra)
+│   ├── _gcp.py          # GcpSecretManagerSource (requires [gcp] extra)
+│   ├── _azure.py        # AzureKeyVaultSource (requires [azure] extra)
+│   ├── _vault.py        # VaultSource (requires [vault] extra)
+│   └── _consul.py       # ConsulSource (requires [consul] extra)
 ├── helpers.py           # from_env_and_file() convenience constructor
 ├── context.py           # override() context manager (ContextVar-based per-task override)
 └── errors.py            # exception hierarchy
@@ -339,9 +346,7 @@ the lock — see Section 7.
 
 ```python
 from confiq import load
-from confiq.sources import EnvSource
-from confiq_vault import VaultSource          # pip install confiq-vault
-from confiq_aws import AwsSecretsManagerSource  # pip install confiq-aws
+from confiq.sources import VaultSource, AwsSecretsManagerSource, EnvSource
 from myapp.schema import Settings
 
 config = load(
@@ -354,9 +359,16 @@ config = load(
 )
 ```
 
-Cloud sources are separate packages; confiq ships none. They register via the
-`confiq.sources` entry-point group. Sources are lazy — `VaultSource(...)` is
-cheap; the network call happens at `load()` time.
+Common cloud sources ship as built-in implementations in `confiq.sources`, each
+guarded by an optional dependency extra. `pip install confiq[vault]` enables
+`VaultSource`; `pip install confiq[aws]` enables `AwsSecretsManagerSource`.
+Instantiation raises `MissingDependencyError` if the required extra is not
+installed, pointing to the correct `pip install` command.
+
+Sources remain lazy — `VaultSource(...)` is cheap; the network call happens at
+`load()` time. For backends confiq does not bundle (enterprise systems, internal
+custom sources), the `confiq.sources` entry-point group is still available —
+see §9.
 
 ### 4.9 Third-party plugin (pluggy hookimpl)
 
@@ -890,13 +902,17 @@ propagates to the caller of `load()`.
 Following the insight in `docs/decisions/0003-dual-extension-surfaces.md`:
 
 **Source classes via `confiq.sources` entry-point group** — for stateful
-backends (Redis, Vault, Consul, AWS SSM). Each is an instance with its own
-connection, credentials, and lifecycle. Registered as:
+backends that confiq does not bundle: enterprise systems, internal custom
+sources, or providers added before confiq ships built-in support. Each is an
+instance with its own connection, credentials, and lifecycle. Registered as:
 
 ```toml
 [project.entry-points."confiq.sources"]
-vault = "confiq_vault.source:VaultSource"
+consul_enterprise = "mycompany_confiq.source:ConsulEnterpriseSource"
 ```
+
+Common cloud providers (AWS, GCP, Azure, Vault, Consul) are built-in and do
+not need entry-point registration — see §4.8 and §10.
 
 **Hookimpls via `confiq` entry-point group** — for stateless transforms (secret
 redaction, audit logging, schema migration hooks). Registered as:
@@ -929,7 +945,12 @@ dotenv  = ["python-dotenv>=1.0"]
 watch   = ["watchdog>=4.0"]
 click   = ["click>=8.1"]
 typer   = ["typer>=0.12"]
-all     = ["confiq[yaml,toml,dotenv,watch,click,typer]"]
+aws     = ["boto3>=1.34"]
+gcp     = ["google-cloud-secret-manager>=2.18"]
+azure   = ["azure-identity>=1.15", "azure-keyvault-secrets>=4.7"]
+vault   = ["hvac>=2.0"]
+consul  = ["py-consul>=1.7"]
+all     = ["confiq[yaml,toml,dotenv,watch,click,typer,aws,gcp,azure,vault,consul]"]
 dev     = ["pytest>=8", "pytest-asyncio>=0.23", "mypy>=1.10", "ruff>=0.5"]
 ```
 
@@ -947,13 +968,11 @@ error on 3.10 without the extra — the plugin simply does not register itself.
 `MissingDependencyError` at instantiation if `watchdog` is not installed,
 pointing to `pip install confiq[watch]`.
 
-Cloud source packages (`confiq-vault`, `confiq-aws`, etc.) are separate PyPI
-packages. They declare `confiq>=1.0` as a dependency, not the other way around.
-Including cloud SDK dependencies as confiq extras would couple confiq's release
-cycle to independently versioned SDKs, contradict §4.8, and cause
-`pip install confiq[all]` to pull in hundreds of megabytes of cloud tooling.
-The correct install pattern is `pip install confiq-aws` — the separate package
-declares the boto3 dependency — see Section 12, decision 9.
+Built-in cloud sources defer their SDK imports to instantiation time — `import
+confiq` never imports boto3, hvac, or similar. Only the source classes the user
+actually instantiates will attempt the import. If the required extra is absent,
+instantiation raises `MissingDependencyError` pointing to
+`pip install confiq[extra-name]`. See Section 12, decision 9.
 
 ---
 
@@ -1093,12 +1112,23 @@ production-facing `ContextVar`-based override would import the wrong mental
 model into every call site. `override()` names what the function does — install
 a scoped context-local override — without the monkeypatching connotation.
 
-**9. Cloud sources are not optional extras of confiq.**
+**9. Common cloud sources ship as built-in implementations with optional extras,
+following the fsspec model.**
 
-Cloud sources (`confiq-vault`, `confiq-aws`, etc.) ship as separate PyPI
-packages that declare `confiq>=1.0` as a dependency. Including `boto3`, `hvac`,
-and similar SDKs as confiq optional extras would: couple confiq's release cycle
-to cloud SDKs that version independently; contradict §4.8; and cause
-`pip install confiq[all]` to download hundreds of megabytes of cloud tooling
-into every development environment. The install pattern is `pip install
-confiq-aws` — the separate package owns the boto3 dependency.
+`VaultSource`, `AwsSecretsManagerSource`, and similar live in `confiq.sources`
+and are importable from a single package. This gives users one install command
+(`pip install confiq[aws]`), one import path, and one place where the Source
+protocol contract is maintained. The alternative — separate packages like
+`confiq-aws` — distributes that surface across independently versioned packages,
+requiring coordinated releases whenever the `Source` protocol or `ConfigField`
+API changes.
+
+Built-in cloud sources use lazy SDK imports: `boto3`, `hvac`, and similar are
+imported at instantiation time, not at module import time. `import confiq`
+carries none of their weight. If a required extra is absent, instantiation
+raises `MissingDependencyError` with an actionable hint rather than a bare
+`ImportError` buried in a stack trace.
+
+The `confiq.sources` entry-point group remains available for sources that
+confiq has no reason to bundle: enterprise systems, internal custom backends,
+or providers not yet in the built-in set.
