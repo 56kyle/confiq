@@ -80,7 +80,7 @@ A fresh `load()` call with `MemorySource` is the canonical test pattern. There
 is no global state to reset, no monkeypatch needed, no `before_each` fixture
 that tears down a singleton. Each test receives a value computed from known
 inputs, and tests do not interfere with each other even when run in parallel.
-`confiq.context.patch()` exists for the narrow case of per-task divergence in
+`confiq.context.override()` exists for the narrow case of per-task divergence in
 async environments, not as the testing story.
 
 ### 2.8 Singleton ergonomics without singleton ownership
@@ -110,10 +110,10 @@ exist in a process.
 
 ```
 confiq/
-├── __init__.py          # exports: load, ConfigField, ConfigHandle, MemorySource, hookimpl
-├── _load.py             # load() function and ConfigHandle[T]
+├── __init__.py          # exports: load, load_async, ConfigField, ConfigHandle, SchemalessConfig, MemorySource, hookimpl
+├── _load.py             # load(), load_async(), and ConfigHandle[T]
 ├── _resolver.py         # merges sources, walks schema, applies ConfigField metadata
-├── _snapshot.py         # immutable resolved state (internal; not surfaced directly)
+├── _snapshot.py         # ResolvedSnapshot: merged field values with per-key source provenance, used between source collection and pydantic validation
 ├── _hookspecs.py        # pluggy hookspecs
 ├── _plugins.py          # plugin manager + built-in hookimpls
 ├── _locks.py            # ReentrancyGuard
@@ -130,7 +130,7 @@ confiq/
 │   ├── _file.py         # FileSource (dispatches via pluggy confiq_load_file hook)
 │   └── _cli.py          # CliSource (argparse-backed; auto-generates flags)
 ├── helpers.py           # from_env_and_file() convenience constructor
-├── context.py           # patch() context manager (ContextVar-based per-task override)
+├── context.py           # override() context manager (ContextVar-based per-task override)
 └── errors.py            # exception hierarchy
 ```
 
@@ -288,14 +288,14 @@ parallel.
 ### 4.6 Per-task override (async-safe)
 
 ```python
-from confiq.context import patch
+from confiq.context import override
 
 async def handle(request: Request) -> Response:
-    with patch(config, database__host=request.tenant_db):
+    with override(config, database__host=request.tenant_db):
         return await process(config)
 ```
 
-`patch()` uses `contextvars.ContextVar` internally — see
+`override()` uses `contextvars.ContextVar` internally — see
 `docs/decisions/0001-lock-free-reads-via-immutable-snapshots.md`. The override
 is visible to `process()` and to any coroutine it awaits within this task,
 but not to concurrent tasks. Per PEP 567, `ContextVar` values are inherited
@@ -399,23 +399,25 @@ from typing import Any, Mapping, Protocol, runtime_checkable
 class Source(Protocol):
     name: str
 
-    def load(self) -> Mapping[str, Any]: ...
+    def fetch(self) -> Mapping[str, Any]: ...
 
 
 @runtime_checkable
 class AsyncSource(Protocol):
     name: str
 
-    async def load(self) -> Mapping[str, Any]: ...
+    async def fetch(self) -> Mapping[str, Any]: ...
 ```
 
-Sources are lazy. Instantiation is cheap — no I/O. The `load()` call is where
+Sources are lazy. Instantiation is cheap — no I/O. The `fetch()` call is where
 I/O happens, and it runs exactly once per `load()` or `handle.reload()` call.
 Sources do not validate; they return raw mappings. Nested structure is expressed
 as nested dicts; the resolver normalizes.
 
 `name` appears in error messages (`SourceUnavailableError`, `MissingConfigError`)
-so the user can tell which source failed.
+so the user can tell which source failed. It is also matched against
+`ConfigField.sources` values at load time to enforce per-field source
+restrictions — see §5.2.
 
 ### 5.2 ConfigField
 
@@ -424,7 +426,7 @@ so the user can tell which source failed.
 from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -435,6 +437,7 @@ class ConfigField:
     secret: bool = False
     parser: Callable[[str], Any] | None = None
     sources: tuple[str, ...] | None = None
+    on_source_violation: Literal["raise", "warn_and_skip"] = "raise"
     description: str | None = None
     deprecated: str | None = None
 ```
@@ -456,14 +459,23 @@ unaffected.
 comma-separated lists in env vars (`lambda s: s.split(",")`), which pydantic
 cannot infer from an env string alone.
 
-`sources` — restricts which source types may set this field. A field with
-`sources=("env",)` ignores values from `FileSource` and `CliSource` even if
-they provide one. Violation behavior is split by `secret`: for `secret=True`
-fields, violations always raise `ConflictingSourceError` regardless of `strict`
-— source restriction on a secret is a security boundary, not a style preference.
-For `secret=False` fields, violations raise `ConflictingSourceError` when
-`strict=True` (the default), or emit a `RuntimeWarning` and skip the value when
-`strict=False`.
+`sources` — restricts which source types may set this field. Values are matched
+against `source.name` for each source in the `sources` list passed to `load()`.
+A field with `sources=("env",)` ignores values from any source whose `name` is
+not `"env"`. At load time the resolver validates that every name in
+`ConfigField.sources` matches at least one source in the call — an unmatched
+name raises `ConfigurationError` immediately rather than silently passing.
+
+Violation behavior is split by `secret`. For `secret=True` fields, violations
+always raise `ConflictingSourceError` — source restriction on a secret is a
+security boundary and `on_source_violation` is ignored. For `secret=False`
+fields, `on_source_violation` controls the outcome: `"raise"` (the default)
+raises `ConflictingSourceError`; `"warn_and_skip"` emits a `RuntimeWarning` and
+skips the value.
+
+`on_source_violation` — controls what happens when a `secret=False` field
+receives a value from a source not listed in `sources`. Has no effect when
+`secret=True`. See `sources` description above.
 
 `deprecated` — when set, `load()` emits a `DeprecationWarning` if any source
 supplies a value for this field. Carry the reason in the string
@@ -473,41 +485,88 @@ supplies a value for this field. Carry the reason in the string
 
 ```python
 # confiq/_load.py
-from typing import Any, TypeVar
+from collections.abc import Mapping
+from typing import Any, TypeVar, overload
 
 from confiq.sources._protocol import AsyncSource, Source
 
 T = TypeVar("T")
 
 
+class SchemalessConfig(Mapping[str, Any]):
+    """Read-only subscript-access result of a schemaless load() call."""
+
+
+@overload
+def load(
+    schema: type[T],
+    *,
+    sources: list[Source | AsyncSource],
+    plugins: list[object] | None = ...,
+    strict: bool = ...,
+) -> T: ...
+
+
+@overload
+def load(
+    schema: None = ...,
+    *,
+    sources: list[Source | AsyncSource],
+    plugins: list[object] | None = ...,
+    strict: bool = ...,
+) -> SchemalessConfig: ...
+
+
 def load(
     schema: type[T] | None = None,
     *,
     sources: list[Source | AsyncSource],
-    plugins: list[Any] | None = None,
+    plugins: list[object] | None = None,
     strict: bool = True,
-) -> T:
+) -> T | SchemalessConfig:
+    ...
+
+
+async def load_async(
+    schema: type[T] | None = None,
+    *,
+    sources: list[Source | AsyncSource],
+    plugins: list[object] | None = None,
+    strict: bool = True,
+) -> T | SchemalessConfig:
     ...
 ```
 
 `schema` — a pydantic `BaseModel` subclass. When `None`, schemaless mode:
-returns a `dict`-like object with subscript access only.
+returns a `SchemalessConfig` with subscript access only. The `@overload`
+signatures ensure type checkers infer `T` when a schema is provided and
+`SchemalessConfig` when it is not.
 
 `sources` — ordered list; later entries override earlier ones. The order is the
 complete precedence specification.
 
-`plugins` — per-call plugin injection. Useful in tests to avoid entry-point
-auto-discovery side effects: `load(Settings, sources=[...], plugins=[MyPlugin()])`
-loads `MyPlugin` for this call only. Entry-point plugins still load; `plugins`
-is additive, not exclusive.
+`plugins` — per-call plugin injection. A plugin is any object with one or more
+`@hookimpl`-decorated methods; confiq uses pluggy to discover them by
+inspection. Useful in tests to avoid entry-point auto-discovery side effects:
+`load(Settings, sources=[...], plugins=[MyPlugin()])` loads `MyPlugin` for this
+call only. Entry-point plugins still load; `plugins` is additive, not exclusive.
 
 `strict` — when `True` (default), source keys not present in the schema emit a
 `UserWarning`. When `False`, unrecognized keys are silently ignored. Useful
-during schema migration when sources are ahead of the schema.
+during schema migration when sources are ahead of the schema. `strict` controls
+unknown-key behavior only; per-field source restriction violations are governed
+by `ConfigField.on_source_violation`, which is orthogonal.
 
-`load()` is synchronous. For async sources, it runs each `AsyncSource.load()`
-via a private event loop or thread executor. The `load_async()` variant is
-available for callers already in an event loop.
+`load()` is synchronous. For async sources, it gathers their results by
+running `asyncio.gather()` inside a `ThreadPoolExecutor` worker via
+`asyncio.run()` — this avoids conflict with any running event loop in the
+caller's thread and is compatible with Python 3.10+.
+
+`load_async()` is the async variant for callers already inside an event loop.
+It drives async sources natively with `await` and does not use the thread
+executor. Both `load()` and `load_async()` share the same resolver and produce
+identical results; the difference is only in how `AsyncSource.fetch()` calls
+are scheduled.
 
 ### 5.4 ConfigHandle[T]
 
@@ -526,7 +585,7 @@ class ConfigHandle(Generic[T]):
         schema: type[T],
         *,
         sources: list[Source | AsyncSource],
-        plugins: list[Any] | None = None,
+        plugins: list[object] | None = None,
     ) -> ConfigHandle[T]: ...
 
     def current(self) -> T: ...
@@ -536,6 +595,12 @@ class ConfigHandle(Generic[T]):
         self, fn: Callable[[T, T], None]
     ) -> Callable[[T, T], None]: ...
 ```
+
+`create()` — classmethod factory rather than `__init__` because construction
+performs an initial `load()` call: I/O that may raise. A `ConfigHandle(...)`
+constructor would carry the same cost but conceal it from readers of the call
+site. The factory name makes the side effect explicit — see Section 12,
+decision 7.
 
 `current()` — lock-free; reads a single attribute (`self._current`). Cost is
 one `LOAD_ATTR`.
@@ -564,17 +629,27 @@ so it can be used as a decorator.
 The resolver — `confiq/_resolver.py` — is the only place where sources and
 schema meet. The algorithm:
 
-1. Call `source.load()` for each source in order. Accumulate results.
-2. Deep-merge the sequence left-to-right. Later sources override earlier ones
-   on scalar and list values; nested dicts are merged recursively. Lists are
-   replaced, not concatenated — see
+1. Call `source.fetch()` for each source in order. Accumulate as a list of
+   `(source_name, mapping)` pairs.
+2. Deep-merge the pairs left-to-right, tracking provenance. This step produces
+   two parallel structures stored together in `ResolvedSnapshot` (`_snapshot.py`):
+   - `merged: dict[str, Any]` — the resolved values, later entries winning on
+     collision.
+   - `provenance: dict[str, str]` — maps each dotted key path to the `name` of
+     the last source that set it. Updated whenever a source overrides a value.
+   Lists are replaced, not concatenated — see
    `docs/decisions/0004-deep-merge-list-replacement-semantics.md`.
 3. Walk the schema's fields via
    `typing.get_type_hints(schema, include_extras=True)`. For each field:
    a. Read `ConfigField` metadata from the `Annotated` wrapper, if present.
    b. Determine the effective lookup key: `ConfigField.file_key`, or the
       field name, or the dotted path for nested fields.
-   c. Apply `sources` restriction: skip values from disallowed source types.
+   c. Apply `sources` restriction: look up the field's dotted path in
+      `provenance`. If the recorded source name does not appear in
+      `ConfigField.sources`, apply `on_source_violation`. For `secret=True`
+      fields always raise `ConflictingSourceError`. The resolver also validates
+      at this point that every name in `ConfigField.sources` matches at least
+      one source in the call; a mismatch raises `ConfigurationError` immediately.
    d. Apply `parser` if set, before pydantic sees the value.
    e. Emit `DeprecationWarning` if `deprecated` is set and a value was found.
 4. Validate through `schema.model_validate(merged)`.
@@ -632,7 +707,7 @@ snapshot reference). It uses the same pattern as Design A:
 | `handle.reload()` | `threading.Lock` | serializes snapshot construction |
 | `confiq_pre_load`, `confiq_transform_value`, `confiq_post_load` hooks | inside lock | run as part of build |
 | `confiq_on_reload` subscribers | none (daemon thread, outside lock) | prevents reentrancy deadlock |
-| `patch()` override | none (`ContextVar`) | async-safe; no shared state |
+| `override()` context | none (`ContextVar`) | async-safe; no shared state |
 
 ### ReentrancyGuard
 
@@ -652,12 +727,17 @@ Fast-fail over silent deadlock. The error message includes the remedy.
 
 ### async compatibility
 
-`patch()` uses `ContextVar` — see §4.6. Per PEP 567, `ContextVar` values are
+`override()` uses `ContextVar` — see §4.6. Per PEP 567, `ContextVar` values are
 inherited by child asyncio tasks at creation and restored on exit from the
 `with` block. No `threading.local`, no bleed between concurrent tasks.
 
 `handle.reload_async()` uses an asyncio-compatible lock for the swap step,
 allowing it to be called from a coroutine without blocking the event loop.
+
+`confiq_pre_load` receives a **shallow copy** of the `sources` list. Mutations
+in a hook are local to that load call and do not affect the handle's source
+list for subsequent reloads. This prevents a race when two threads call
+`handle.reload()` concurrently — they do not share a mutable list reference.
 
 Free-threaded CPython (PEP 703): the atomic-swap argument holds for reference
 assignment under the new memory model, but the merge path (dict reads and
@@ -686,11 +766,13 @@ All confiq errors are raised during `load()` or `handle.reload()`. `__cause__`
 is set when wrapping a lower-level exception (e.g., `SourceParseError.__cause__`
 is the `yaml.YAMLError`).
 
-`ConfigValidationError` carries `field_path: str` (dotted), `source_name: str`
-(the source whose value triggered the failure), and
-`pydantic_errors: list[InitErrorDetails]` (the raw pydantic error detail). This
-is enough to write a single-line error message that tells the user exactly which
-source provided a bad value and where it is expected to go.
+`ConfigValidationError` carries `field_path: str` (dotted),
+`source_names: list[str]` (names of the sources that contributed to the field's
+value — there may be more than one after deep-merge where nested sub-fields came
+from different sources), and `pydantic_errors: list[InitErrorDetails]` (the raw
+pydantic error detail). This is enough to write a single-line error message that
+tells the user which sources were involved and where the bad value was expected
+to go.
 
 After `load()` returns, no confiq method on the returned model raises a
 `ConfiqError`. Reading `config.database.host` is exactly as safe as reading any
@@ -718,7 +800,7 @@ hookimpl = pluggy.HookimplMarker("confiq")
 
 class ConfiqSpecs:
     @hookspec(firstresult=True)
-    def confiq_load_file(self, path: "Path", suffix: str) -> "dict | None":
+    def confiq_load_file(self, path: "Path") -> "dict | None":
         """Load a file; return its dict, or None to pass to the next handler."""
 
     @hookspec(firstresult=True)
@@ -729,7 +811,8 @@ class ConfiqSpecs:
     def confiq_pre_load(
         self, schema: type, sources: "list[Source | AsyncSource]"
     ) -> None:
-        """Called before resolution begins. May mutate sources in place."""
+        """Called before resolution begins with a shallow copy of the sources list.
+        Mutations affect only this load call."""
 
     @hookspec(firstresult=True)
     def confiq_transform_value(
@@ -751,16 +834,44 @@ class ConfiqSpecs:
 ```
 
 `confiq_load_file` — `firstresult=True`; the first non-None return is used.
-Built-in loaders handle `.json` (stdlib) and `.ini` (stdlib). `.yaml` and `.toml`
-are registered as plugins by `_plugins.py` when the extras are installed.
+The `path` argument is a `pathlib.Path`; plugins call `path.suffix` themselves
+to dispatch on file type. Built-in loaders handle `.json` (stdlib) and `.ini`
+(stdlib). `.yaml` and `.toml` are registered as plugins by `_plugins.py` when
+the extras are installed.
 
 `confiq_get_schema_adapter` — `firstresult=True`; allows third-party schema
 types (attrs classes, msgspec structs) to be supported without modifying confiq.
-The built-in adapter handles pydantic `BaseModel`.
+The built-in adapter handles pydantic `BaseModel`. A `SchemaAdapter` must
+implement the following protocol:
 
-`confiq_pre_load` — may mutate the `sources` list. Use case: injecting a
-`MemorySource` with computed defaults, or removing a source based on an
-environment condition.
+```python
+# confiq/_hookspecs.py (continued)
+from collections.abc import Mapping
+from typing import Any, Protocol
+
+
+class SchemaAdapter(Protocol):
+    """Adapts a schema class to confiq's resolver interface."""
+
+    def field_hints(self) -> Mapping[str, object]:
+        """Return field name → annotated type (including Annotated wrappers).
+
+        For pydantic: typing.get_type_hints(schema, include_extras=True).
+        """
+        ...
+
+    def validate(self, data: dict[str, Any]) -> object:
+        """Validate and coerce the merged data dict into the schema type.
+
+        For pydantic: schema.model_validate(data).
+        """
+        ...
+```
+
+`confiq_pre_load` — receives a shallow copy of the `sources` list; mutations
+are local to this load call and do not affect the handle's source list. Use
+case: injecting a `MemorySource` with computed defaults, or removing a source
+based on an environment condition.
 
 `confiq_transform_value` — `firstresult=True`; runs for every field before
 pydantic sees the value. Use case: secret decryption, base64 decoding.
@@ -818,12 +929,7 @@ dotenv  = ["python-dotenv>=1.0"]
 watch   = ["watchdog>=4.0"]
 click   = ["click>=8.1"]
 typer   = ["typer>=0.12"]
-aws     = ["boto3>=1.34"]
-gcp     = ["google-cloud-secret-manager>=2.18"]
-azure   = ["azure-identity>=1.15", "azure-keyvault-secrets>=4.7"]
-vault   = ["hvac>=2.0"]
-consul  = ["py-consul>=1.7"]
-all     = ["confiq[yaml,toml,dotenv,watch,click,typer,aws,gcp,azure,vault,consul]"]
+all     = ["confiq[yaml,toml,dotenv,watch,click,typer]"]
 dev     = ["pytest>=8", "pytest-asyncio>=0.23", "mypy>=1.10", "ruff>=0.5"]
 ```
 
@@ -842,8 +948,12 @@ error on 3.10 without the extra — the plugin simply does not register itself.
 pointing to `pip install confiq[watch]`.
 
 Cloud source packages (`confiq-vault`, `confiq-aws`, etc.) are separate PyPI
-packages, not extras of confiq itself. They declare `confiq>=1.0` as a
-dependency and register via entry points.
+packages. They declare `confiq>=1.0` as a dependency, not the other way around.
+Including cloud SDK dependencies as confiq extras would couple confiq's release
+cycle to independently versioned SDKs, contradict §4.8, and cause
+`pip install confiq[all]` to pull in hundreds of megabytes of cloud tooling.
+The correct install pattern is `pip install confiq-aws` — the separate package
+declares the boto3 dependency — see Section 12, decision 9.
 
 ---
 
@@ -894,7 +1004,7 @@ dependency and register via entry points.
 
 ## 12. Resolved Design Decisions
 
-These five questions were open at the time Section 1 was written. Each is now
+These questions were open at the time Section 1 was written. Each is now
 resolved. The decisions below supersede any conditional language elsewhere in
 this document.
 
@@ -906,14 +1016,15 @@ Instead, `confiq.helpers` ships a `from_env_and_file(schema, prefix, path)`
 convenience constructor that builds the explicit source list and delegates to
 `load()`. Users see the sources; no magic lives in `load()` itself.
 
-**2. `confiq.context.patch()` ships as a context manager only in v1.**
+**2. `confiq.context.override()` ships as a context manager only in v1.**
 
-No `confiq_patch` pytest fixture in v1. The primary testing story — `MemorySource`
-plus a fresh `load()` per test — never needs `patch()`. A `pytest-confiq` package
-(a separate PyPI package, not part of `confiq` itself) is a planned post-v1
-deliverable that will ship the fixture and any other pytest integration. Keeping
-the pytest dependency out of `confiq` itself remains the right boundary; the
-plugin follows the same separate-package model as cloud sources.
+No `confiq_override` pytest fixture in v1. The primary testing story —
+`MemorySource` plus a fresh `load()` per test — never needs `override()`. A
+`pytest-confiq` package (a separate PyPI package, not part of `confiq` itself)
+is a planned post-v1 deliverable that will ship the fixture and any other pytest
+integration. Keeping the pytest dependency out of `confiq` itself remains the
+right boundary; the plugin follows the same separate-package model as cloud
+sources.
 
 **3. Async callbacks on `ConfigHandle.on_reload` deferred to v1.1.**
 
@@ -932,15 +1043,62 @@ under a no-GIL build — an unusual scenario that requires user-side misbehavior
 The audit will be performed before confiq declares no-GIL compatibility; the right
 moment is when CPython 3.14 stabilizes the no-GIL build guarantee.
 
-**5. `ConfigField.sources` violation behavior is split by `secret`.**
+**5. `ConfigField.sources` violation behavior is split by `secret` and
+`on_source_violation`.**
 
-`secret=True` fields always raise `ConflictingSourceError` on a source violation,
-regardless of `strict`. Source restriction on a secret is a security boundary:
-silently skipping a leaked value while leaving the field unset produces a
-confusing `MissingConfigError` from an unrelated path.
+`secret=True` fields always raise `ConflictingSourceError` on a source violation.
+Source restriction on a secret is a security boundary: silently skipping a
+leaked value while leaving the field unset produces a confusing
+`MissingConfigError` from an unrelated path. `on_source_violation` is ignored
+for secret fields.
 
-`secret=False` fields follow `strict`: `ConflictingSourceError` when `strict=True`
-(the default), `RuntimeWarning` plus skip when `strict=False`. This lets teams
-migrate legacy configs without a big-bang change while keeping strict enforcement
-as the default for new codebases. See Section 5.2 for the updated `ConfigField`
-`sources` description and Section 8 for the updated error hierarchy.
+`secret=False` fields use `on_source_violation` to control the outcome per
+field: `"raise"` (the default) raises `ConflictingSourceError`; `"warn_and_skip"`
+emits a `RuntimeWarning` and skips the value. This is a per-field decision, not
+a global `load()` parameter — a team migrating a legacy source wants lax
+behavior on specific fields, not on the entire config. `strict` in `load()` is
+orthogonal: it controls whether unknown source keys (keys with no matching schema
+field) emit a warning. See Section 5.2 and Section 8.
+
+**6. Source protocol method is named `fetch()`, not `load()`.**
+
+`load()` is the name of the public function that orchestrates full config
+resolution and returns a validated model. A source method with the same name
+collides at the reader level — identical word, entirely different abstraction.
+`fetch()` is unambiguous: it means "retrieve raw data from this backend."
+`read()` was considered but implies file I/O; `fetch()` is neutral on transport.
+
+**7. Source restriction is enforced via provenance tracking, not pre-merge
+filtering.**
+
+The resolver deep-merges all sources into `merged` while simultaneously
+populating a parallel `provenance: dict[str, str]` that records, for each
+dotted key path, the name of the last source to set it. Source restrictions
+(`ConfigField.sources`) are checked in the field-walking step by consulting this
+provenance dict.
+
+The alternative — filtering each source's mapping before merge based on field
+restrictions — requires schema metadata to be available during the merge phase,
+coupling two concerns that are cleanest when kept separate. Provenance tracking
+preserves the clean separation: merge is generic, restriction enforcement is
+schema-aware. `ResolvedSnapshot` (`_snapshot.py`) carries both `merged` and
+`provenance` as a unit between the two phases.
+
+**8. `confiq.context.override()`, not `patch()`.**
+
+In the Python ecosystem `patch` is the canonical name for monkeypatching
+(unittest.mock.patch, pytest's monkeypatch fixture). This design explicitly
+rejects monkeypatching as a testing pattern (§2.7). Using `patch` for a
+production-facing `ContextVar`-based override would import the wrong mental
+model into every call site. `override()` names what the function does — install
+a scoped context-local override — without the monkeypatching connotation.
+
+**9. Cloud sources are not optional extras of confiq.**
+
+Cloud sources (`confiq-vault`, `confiq-aws`, etc.) ship as separate PyPI
+packages that declare `confiq>=1.0` as a dependency. Including `boto3`, `hvac`,
+and similar SDKs as confiq optional extras would: couple confiq's release cycle
+to cloud SDKs that version independently; contradict §4.8; and cause
+`pip install confiq[all]` to download hundreds of megabytes of cloud tooling
+into every development environment. The install pattern is `pip install
+confiq-aws` — the separate package owns the boto3 dependency.
