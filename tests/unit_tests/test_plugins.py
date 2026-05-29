@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from confiq._plugins import _make_plugin_manager
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_make_plugin_manager_returns_plugin_manager() -> None:

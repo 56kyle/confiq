@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import importlib
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -11,6 +11,10 @@ from confiq._load import load
 from confiq.exceptions import SourceParseError
 from confiq.exceptions import SourceUnavailableError
 from confiq.sources._file import FileSource
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 app: typer.Typer = typer.Typer(help="confiq — inspect and validate config files.")

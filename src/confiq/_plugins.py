@@ -1,7 +1,7 @@
 """Module containing built-in pluggy plugin implementations and the plugin manager factory used throughout the confiq package."""
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
 
 import pluggy
@@ -10,6 +10,10 @@ from confiq._hookspecs import ConfiqSpecs
 from confiq._hookspecs import SchemaAdapter
 from confiq._hookspecs import hookimpl
 from confiq.exceptions import SourceParseError
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _JsonLoader:

@@ -17,10 +17,8 @@ def test_acquires_and_releases() -> None:
 
 def test_reentrant_same_thread_raises() -> None:
     guard = ReentrancyGuard()
-    with pytest.raises(RuntimeError):
-        with guard:
-            with guard:
-                pass
+    with pytest.raises(RuntimeError), guard, guard:
+        pass
 
 
 def test_different_threads_do_not_conflict() -> None:

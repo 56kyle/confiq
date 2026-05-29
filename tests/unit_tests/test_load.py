@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import warnings
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import BaseModel
@@ -15,6 +15,10 @@ from confiq.exceptions import ConfigValidationError
 from confiq.sources._env import EnvSource
 from confiq.sources._file import FileSource
 from confiq.sources._memory import MemorySource
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class DB(BaseModel, frozen=True):

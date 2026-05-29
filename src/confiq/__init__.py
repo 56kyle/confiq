@@ -1,4 +1,4 @@
-"""confiq"""
+"""confiq."""
 from __future__ import annotations
 
 from confiq._hookspecs import hookimpl

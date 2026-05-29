@@ -1,8 +1,6 @@
 """Module containing pluggy hookspec definitions and the SchemaAdapter protocol used throughout the confiq package."""
 from __future__ import annotations
 
-from collections.abc import Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Protocol
@@ -11,6 +9,9 @@ import pluggy
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+
     from confiq.exceptions import ConfiqError
     from confiq.schema._field import ConfigField
 

@@ -68,7 +68,7 @@ class CliSource:
 
 def _check_path_conflict(d: dict[str, Any], parts: list[str]) -> None:
     node: Any = d
-    for depth, part in enumerate(parts[:-1]):
+    for _depth, part in enumerate(parts[:-1]):
         if part not in node:
             return
         node = node[part]

@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import Generic
 from typing import TypeVar
@@ -18,8 +19,11 @@ from confiq._plugins import _make_plugin_manager
 from confiq._resolver import resolve
 from confiq.exceptions import ConfigValidationError
 from confiq.exceptions import ConfiqError
-from confiq.sources._protocol import AsyncSource
-from confiq.sources._protocol import Source
+
+
+if TYPE_CHECKING:
+    from confiq.sources._protocol import AsyncSource
+    from confiq.sources._protocol import Source
 
 
 T = TypeVar("T")

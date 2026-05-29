@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -11,6 +11,10 @@ from confiq.sources._cli import CliSource
 from confiq.sources._env import EnvSource
 from confiq.sources._file import FileSource
 from confiq.sources._memory import MemorySource
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestMemorySource:

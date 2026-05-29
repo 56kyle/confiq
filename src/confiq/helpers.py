@@ -1,7 +1,7 @@
 """Module containing convenience helpers for loading config from env vars and files used by the confiq package."""
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import TypeVar
 from typing import overload
@@ -10,6 +10,10 @@ from confiq._load import SchemalessConfig
 from confiq._load import load
 from confiq.sources._env import EnvSource
 from confiq.sources._file import FileSource
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 T = TypeVar("T")

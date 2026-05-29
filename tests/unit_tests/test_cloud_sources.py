@@ -40,10 +40,9 @@ class TestAwsSecretsManagerSource:
         assert src.name == "aws_secrets"
 
     def test_missing_dependency_raises_import_error(self) -> None:
-        with patch.dict("sys.modules", {"boto3": None}):
-            with pytest.raises(ImportError, match="confiq\\[aws\\]"):
-                from confiq.sources._aws import AwsSecretsManagerSource
-                AwsSecretsManagerSource("x", region="us-east-1")
+        with patch.dict("sys.modules", {"boto3": None}), pytest.raises(ImportError, match="confiq\\[aws\\]"):
+            from confiq.sources._aws import AwsSecretsManagerSource
+            AwsSecretsManagerSource("x", region="us-east-1")
 
 
 class TestGcpSecretManagerSource:
@@ -185,10 +184,9 @@ class TestVaultSource:
         assert src.name == "vault"
 
     def test_missing_dependency_raises_import_error(self) -> None:
-        with patch.dict("sys.modules", {"hvac": None}):
-            with pytest.raises(ImportError, match="confiq\\[vault\\]"):
-                from confiq.sources._vault import VaultSource
-                VaultSource("http://vault:8200", "secret/myapp")
+        with patch.dict("sys.modules", {"hvac": None}), pytest.raises(ImportError, match="confiq\\[vault\\]"):
+            from confiq.sources._vault import VaultSource
+            VaultSource("http://vault:8200", "secret/myapp")
 
 
 class TestConsulSource:

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 from typing import Any
-
-import pluggy
 
 from confiq._plugins import _make_plugin_manager
 from confiq.exceptions import SourceParseError
 from confiq.exceptions import SourceUnavailableError
+
+
+if TYPE_CHECKING:
+    import pluggy
 
 
 class FileSource:

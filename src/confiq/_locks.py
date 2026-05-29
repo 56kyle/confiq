@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import threading
-from types import TracebackType
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 _REENTRANCY_ERROR = (

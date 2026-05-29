@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Generator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 from typing import Any
+
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 _override_var: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
