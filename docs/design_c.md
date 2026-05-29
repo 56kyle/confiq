@@ -80,7 +80,7 @@ A fresh `load()` call with `MemorySource` is the canonical test pattern. There
 is no global state to reset, no monkeypatch needed, no `before_each` fixture
 that tears down a singleton. Each test receives a value computed from known
 inputs, and tests do not interfere with each other even when run in parallel.
-`confiq.testing.patch()` exists for the narrow case of per-task divergence in
+`confiq.context.patch()` exists for the narrow case of per-task divergence in
 async environments, not as the testing story.
 
 ### 2.8 Singleton ergonomics without singleton ownership
@@ -129,13 +129,14 @@ confiq/
 │   ├── _env.py          # EnvSource
 │   ├── _file.py         # FileSource (dispatches via pluggy confiq_load_file hook)
 │   └── _cli.py          # CliSource (argparse-backed; auto-generates flags)
-├── testing.py           # patch() context manager
+├── helpers.py           # from_env_and_file() convenience constructor
+├── context.py           # patch() context manager (ContextVar-based per-task override)
 └── errors.py            # exception hierarchy
 ```
 
 Underscore-prefixed modules are library internals; the public surface is
-`confiq.__init__`, `confiq.schema`, `confiq.sources`, `confiq.testing`, and
-`confiq.errors`. Third-party cloud sources (`VaultSource`,
+`confiq.__init__`, `confiq.schema`, `confiq.sources`, `confiq.context`,
+`confiq.helpers`, and `confiq.errors`. Third-party cloud sources (`VaultSource`,
 `AwsSecretsManagerSource`, etc.) ship as separate packages that register via the
 `confiq.sources` entry-point group.
 
@@ -287,7 +288,7 @@ parallel.
 ### 4.6 Per-task override (async-safe)
 
 ```python
-from confiq.testing import patch
+from confiq.context import patch
 
 async def handle(request: Request) -> Response:
     with patch(config, database__host=request.tenant_db):
@@ -457,8 +458,12 @@ cannot infer from an env string alone.
 
 `sources` — restricts which source types may set this field. A field with
 `sources=("env",)` ignores values from `FileSource` and `CliSource` even if
-they provide one. Violations are a `ConflictingSourceError` when `strict=True`
-(the default), or a silently-skipped value when `strict=False`.
+they provide one. Violation behavior is split by `secret`: for `secret=True`
+fields, violations always raise `ConflictingSourceError` regardless of `strict`
+— source restriction on a secret is a security boundary, not a style preference.
+For `secret=False` fields, violations raise `ConflictingSourceError` when
+`strict=True` (the default), or emit a `RuntimeWarning` and skip the value when
+`strict=False`.
 
 `deprecated` — when set, `load()` emits a `DeprecationWarning` if any source
 supplies a value for this field. Carry the reason in the string
@@ -672,7 +677,8 @@ ConfiqError
 │                                 # and the name of the source that supplied the value
 ├── MissingConfigError            # required field; no source provided a value; no default
 ├── ConflictingSourceError        # field has sources restriction; a forbidden source
-│                                 # attempted to set it (strict=True only)
+│                                 # attempted to set it. Always raised for secret=True
+│                                 # fields; raised for secret=False only when strict=True
 └── PluginError                   # a hookimpl raised; wraps the original exception
 ```
 
@@ -886,55 +892,55 @@ dependency and register via entry points.
 
 ---
 
-## 12. Open Questions
+## 12. Resolved Design Decisions
 
-These are genuine open questions — not resolved decisions. All axis decisions in
-Section 1 are resolved.
+These five questions were open at the time Section 1 was written. Each is now
+resolved. The decisions below supersede any conditional language elsewhere in
+this document.
 
-**1. Convenience prefix shortcut on `load()`?**
+**1. No convenience prefix shortcut on `load()`.**
 
-Should `load(Settings, prefix="MYAPP_")` auto-discover `config.yaml`,
-`config.toml`, and env vars under `MYAPP_` without an explicit `sources` list?
-Pro: twelve-factor apps get a one-liner. Con: violates the "precedence is data"
-principle — the implicit source list and its order become a convention. Current
-recommendation: keep `sources` required. A helper function
-(`confiq.helpers.from_env_and_file(schema, prefix, file)`) could provide the
-shortcut without embedding it in `load()`'s signature.
+`load()` will not accept a `prefix` shortcut that auto-discovers files and env
+vars. Implicit source lists violate principle 2.4 and make debugging harder.
+Instead, `confiq.helpers` ships a `from_env_and_file(schema, prefix, path)`
+convenience constructor that builds the explicit source list and delegates to
+`load()`. Users see the sources; no magic lives in `load()` itself.
 
-**2. Should `confiq.testing.patch()` double as a pytest fixture?**
+**2. `confiq.context.patch()` ships as a context manager only in v1.**
 
-A `confiq_patch` pytest fixture that yields the patch context manager would
-reduce boilerplate in test suites that use it pervasively. The risk: it
-introduces a pytest dependency into `confiq.testing`, which currently has none.
-Option: ship `confiq.pytest` as a separate module that declares `pytest` as a
-soft dependency, analogous to `pytest-asyncio`'s approach.
+No `confiq_patch` pytest fixture in v1. The primary testing story — `MemorySource`
+plus a fresh `load()` per test — never needs `patch()`. A `pytest-confiq` package
+(a separate PyPI package, not part of `confiq` itself) is a planned post-v1
+deliverable that will ship the fixture and any other pytest integration. Keeping
+the pytest dependency out of `confiq` itself remains the right boundary; the
+plugin follows the same separate-package model as cloud sources.
 
-**3. Async callbacks on `ConfigHandle.on_reload`?**
+**3. Async callbacks on `ConfigHandle.on_reload` deferred to v1.1.**
 
-Currently, `on_reload` subscribers are sync callables running on a daemon
-thread. Async users must bridge via `loop.call_soon_threadsafe(...)` inside
-their subscriber. Should confiq provide a first-class async subscriber API
-(`handle.on_reload_async(async_fn)`) that schedules onto a known event loop?
-Deferring to post-1.0 is reasonable — the sync bridge is documented and
-workable. The risk of adding async subscribers in v1 is that confiq must then
-own or accept a loop reference.
+`on_reload` accepts only sync callables in v1. Async users bridge via
+`loop.call_soon_threadsafe(asyncio.ensure_future, coro, loop=loop)` inside their
+sync subscriber — this pattern is documented in the `ConfigHandle` reference.
+First-class async subscribers require confiq to own or accept a loop reference,
+which is a significant design commitment deferred until the sync surface is stable
+and demand is confirmed.
 
-**4. Free-threaded CPython (PEP 703) audit**
+**4. Free-threaded CPython (PEP 703) audit is not a v1 blocker.**
 
-The atomic-swap argument (`self._current = new` is safe without a lock) holds
-under the GIL. On free-threaded 3.13+ builds, reference assignment is still
-atomic per the Python data model, but dict operations in the merge path are not
-GIL-protected. The merge path needs an explicit audit before confiq declares
-support for `--enable-experimental-free-threading` builds. This is not a v1
-blocker; it is a tracked item for the first 3.13 compatibility release.
+The atomic-swap argument (`self._current = new`) holds under the new memory model.
+The narrow risk is in `deep_merge` when a source mutates a shared dict concurrently
+under a no-GIL build — an unusual scenario that requires user-side misbehavior.
+The audit will be performed before confiq declares no-GIL compatibility; the right
+moment is when CPython 3.14 stabilizes the no-GIL build guarantee.
 
-**5. `ConfigField.sources` violation: hard error or logged skip?**
+**5. `ConfigField.sources` violation behavior is split by `secret`.**
 
-When `sources=("env",)` and a `FileSource` provides a value for that field, the
-current design raises `ConflictingSourceError` when `strict=True` and silently
-skips when `strict=False`. A middle option — log a warning and skip, regardless
-of `strict` — would be less disruptive for teams migrating from unstructured
-configs to annotated schemas. The decision turns on whether source restriction
-is a security boundary (hard error appropriate) or a style preference (warning
-appropriate). For secrets (`secret=True` fields) the answer is clearly hard
-error; for non-secret fields it is less clear.
+`secret=True` fields always raise `ConflictingSourceError` on a source violation,
+regardless of `strict`. Source restriction on a secret is a security boundary:
+silently skipping a leaked value while leaving the field unset produces a
+confusing `MissingConfigError` from an unrelated path.
+
+`secret=False` fields follow `strict`: `ConflictingSourceError` when `strict=True`
+(the default), `RuntimeWarning` plus skip when `strict=False`. This lets teams
+migrate legacy configs without a big-bang change while keeping strict enforcement
+as the default for new codebases. See Section 5.2 for the updated `ConfigField`
+`sources` description and Section 8 for the updated error hierarchy.
