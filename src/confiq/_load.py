@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable
+from collections.abc import Iterator
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
@@ -42,7 +43,7 @@ class SchemalessConfig(Mapping[str, Any]):
     def __getitem__(self, key: str) -> Any:
         return self._data[key]
 
-    def __iter__(self) -> Any:
+    def __iter__(self) -> Iterator[str]:
         return iter(self._data)
 
     def __len__(self) -> int:
@@ -82,7 +83,7 @@ def _resolve_config(
     schema: type[T] | None,
     fetched: list[tuple[str, Any]],
     strict: bool,
-    pm: Any,
+    pm: pluggy.PluginManager,
 ) -> T | SchemalessConfig:
     snapshot: ResolvedSnapshot = resolve(fetched, schema, strict=strict)
 
@@ -173,6 +174,13 @@ async def load_async(
         raise
 
 
+def _invoke_subscriber(fn: Callable[[Any, Any], None], old: Any, new: Any) -> None:
+    try:
+        fn(old, new)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _notify(
     subscribers: list[Callable[[Any, Any], None]],
     old: Any,
@@ -180,10 +188,7 @@ def _notify(
 ) -> None:
     fn: Callable[[Any, Any], None]
     for fn in subscribers:
-        try:
-            fn(old, new)
-        except Exception:
-            pass  # daemon thread; swallow to avoid killing the thread
+        _invoke_subscriber(fn, old, new)
 
 
 class ConfigHandle(Generic[T]):

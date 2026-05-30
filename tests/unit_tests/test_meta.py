@@ -8,7 +8,7 @@ from confiq.schema._field import ConfigField
 from confiq.schema._meta import field_meta
 
 
-class MyModel(BaseModel):
+class MyModel(BaseModel, frozen=True):
     plain: str = "default"
     annotated: Annotated[str, ConfigField(env="MY_VAR")] = "default"
     other_meta: Annotated[str, "just a string"] = "default"

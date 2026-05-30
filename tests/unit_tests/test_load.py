@@ -32,30 +32,30 @@ class Settings(BaseModel, frozen=True):
     name: str = "app"
 
 
-def test_schemaless_load_returns_schemaless_config() -> None:
+def test_load_with_no_schema() -> None:
     result = load(sources=[MemorySource({"key": "value"})])
     assert isinstance(result, SchemalessConfig)
 
 
-def test_schemaless_load_subscript_access() -> None:
+def test_load_with_no_schema_subscript_access() -> None:
     result = load(sources=[MemorySource({"key": "value"})])
     assert result["key"] == "value"
 
 
-def test_schema_load_returns_model_instance() -> None:
+def test_load_with_schema() -> None:
     result = load(Settings, sources=[MemorySource({"name": "myapp"})])
     assert isinstance(result, Settings)
     assert result.name == "myapp"
 
 
-def test_defaults_preserved_when_not_in_sources() -> None:
+def test_load_with_no_matching_source_keys() -> None:
     result = load(Settings, sources=[MemorySource({})])
     assert result.debug is False
     assert result.database.host == "localhost"
     assert result.database.port == 5432
 
 
-def test_source_precedence_last_wins() -> None:
+def test_load_with_overlapping_sources() -> None:
     result = load(
         Settings,
         sources=[
@@ -66,36 +66,36 @@ def test_source_precedence_last_wins() -> None:
     assert result.name == "second"
 
 
-def test_env_source_integration(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_with_env_source(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_NAME", "env-app")
     result = load(Settings, sources=[EnvSource(prefix="APP_")])
     assert result.name == "env-app"
 
 
-def test_file_source_integration(tmp_path: Path) -> None:
+def test_load_with_file_source(tmp_path: Path) -> None:
     cfg = tmp_path / "config.json"
     cfg.write_text(json.dumps({"name": "file-app"}))
     result = load(Settings, sources=[FileSource(cfg)])
     assert result.name == "file-app"
 
 
-def test_strict_mode_unknown_key_emits_user_warning() -> None:
+def test_load_with_unknown_key_and_strict_mode() -> None:
     with pytest.warns(UserWarning, match="not present in schema"):
         load(Settings, sources=[MemorySource({"unknown_key": "value"})], strict=True)
 
 
-def test_non_strict_mode_suppresses_warning() -> None:
+def test_load_with_unknown_key_and_strict_disabled() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         load(Settings, sources=[MemorySource({"unknown_key": "value"})], strict=False)
 
 
-def test_wrong_type_raises_config_validation_error() -> None:
+def test_load_with_wrong_field_type() -> None:
     with pytest.raises(ConfigValidationError):
         load(Settings, sources=[MemorySource({"debug": "not_a_bool_or_coercible"})])
 
 
-def test_load_async_returns_model_instance() -> None:
+def test_load_async_with_schema() -> None:
     result = asyncio.run(
         load_async(Settings, sources=[MemorySource({"name": "x"})])
     )
@@ -103,7 +103,7 @@ def test_load_async_returns_model_instance() -> None:
     assert result.name == "x"
 
 
-def test_load_async_defaults_preserved() -> None:
+def test_load_async_with_no_matching_source_keys() -> None:
     result = asyncio.run(load_async(Settings, sources=[MemorySource({})]))
     assert result.debug is False
     assert result.name == "app"

@@ -29,7 +29,7 @@ def resolve(
 
     for source_name, mapping in fetched:
         merged = deep_merge(merged, mapping)
-        _collect_leaves(mapping, "", provenance, source_name)
+        _record_provenance(mapping, "", provenance, source_name)
 
     if schema is not None:
         hints: dict[str, Any] = get_type_hints(schema, include_extras=True)
@@ -86,7 +86,7 @@ def resolve(
     return ResolvedSnapshot(merged=merged, provenance=provenance)
 
 
-def _collect_leaves(
+def _record_provenance(
     mapping: Mapping[str, Any],
     prefix: str,
     provenance: dict[str, str],
@@ -95,6 +95,6 @@ def _collect_leaves(
     for key, value in mapping.items():
         dotted: str = f"{prefix}.{key}" if prefix else key
         if isinstance(value, Mapping):
-            _collect_leaves(value, dotted, provenance, source_name)
+            _record_provenance(value, dotted, provenance, source_name)
         else:
             provenance[dotted] = source_name

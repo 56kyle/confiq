@@ -40,7 +40,7 @@ def test_returns_resolved_snapshot_type() -> None:
     assert isinstance(result, ResolvedSnapshot)
 
 
-class SecretModel(BaseModel):
+class SecretModel(BaseModel, frozen=True):
     password: Annotated[str, ConfigField(sources=("vault",))] = "default"
 
 
@@ -52,7 +52,7 @@ def test_config_field_sources_restriction_raises_conflicting_source_error() -> N
     assert "vault" in exc_info.value.allowed_sources
 
 
-class WarnModel(BaseModel):
+class WarnModel(BaseModel, frozen=True):
     password: Annotated[str, ConfigField(
         sources=("vault",),
         on_source_violation="warn_and_skip",
@@ -65,7 +65,7 @@ def test_on_source_violation_warn_and_skip_removes_key_and_warns() -> None:
     assert "password" not in snapshot.merged
 
 
-class DeprecatedModel(BaseModel):
+class DeprecatedModel(BaseModel, frozen=True):
     old_key: Annotated[str, ConfigField(deprecated="Use new_key instead.")] = "default"
 
 
@@ -74,7 +74,7 @@ def test_deprecated_field_emits_deprecation_warning() -> None:
         resolve([("env", {"old_key": "value"})], schema=DeprecatedModel)
 
 
-class ParsedModel(BaseModel):
+class ParsedModel(BaseModel, frozen=True):
     port: Annotated[int, ConfigField(parser=int)] = 5432
 
 
@@ -83,7 +83,7 @@ def test_parser_is_applied() -> None:
     assert snapshot.merged["port"] == 9000
 
 
-class SimpleModel(BaseModel):
+class SimpleModel(BaseModel, frozen=True):
     host: str = "localhost"
 
 

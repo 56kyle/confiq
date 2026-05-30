@@ -7,10 +7,10 @@ import pytest
 
 from confiq.exceptions import SourceParseError
 from confiq.exceptions import SourceUnavailableError
-from confiq.sources._cli import CliSource
-from confiq.sources._env import EnvSource
-from confiq.sources._file import FileSource
-from confiq.sources._memory import MemorySource
+from confiq.sources import CliSource
+from confiq.sources import EnvSource
+from confiq.sources import FileSource
+from confiq.sources import MemorySource
 
 
 if TYPE_CHECKING:

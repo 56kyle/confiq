@@ -10,7 +10,7 @@ import pytest
 
 
 class TestAwsSecretsManagerSource:
-    def test_fetch_returns_parsed_dict(self) -> None:
+    def test_fetch_with_valid_credentials(self) -> None:
         mock_boto3 = MagicMock()
         mock_client = MagicMock()
         mock_client.get_secret_value.return_value = {
@@ -46,7 +46,7 @@ class TestAwsSecretsManagerSource:
 
 
 class TestGcpSecretManagerSource:
-    def test_fetch_returns_parsed_dict(self) -> None:
+    def test_fetch_with_valid_credentials(self) -> None:
         mock_secretmanager = MagicMock()
         mock_client_instance = MagicMock()
         mock_response = MagicMock()
@@ -102,7 +102,7 @@ class TestGcpSecretManagerSource:
 
 
 class TestAzureKeyVaultSource:
-    def test_fetch_returns_dict(self) -> None:
+    def test_fetch_with_valid_credentials(self) -> None:
         mock_secret_props = MagicMock()
         mock_secret_props.name = "my-secret"
         mock_secret = MagicMock()
@@ -157,7 +157,7 @@ class TestAzureKeyVaultSource:
 
 
 class TestVaultSource:
-    def test_fetch_returns_kv_data(self) -> None:
+    def test_fetch_with_valid_credentials(self) -> None:
         mock_hvac = MagicMock()
         mock_client_instance = MagicMock()
         mock_client_instance.secrets.kv.v2.read_secret_version.return_value = {
@@ -194,7 +194,7 @@ class TestConsulSource:
         encoded = base64.b64encode(json.dumps(value).encode()).decode()
         return {"Key": key, "Value": encoded}
 
-    def test_fetch_returns_nested_dict(self) -> None:
+    def test_fetch_with_valid_credentials(self) -> None:
         item = self._make_consul_item("app/database/host", "pg")
         mock_consul = MagicMock()
         mock_client_instance = MagicMock()

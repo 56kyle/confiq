@@ -5,8 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from confiq._hookspecs import hookimpl
-from confiq._load import ConfigHandle
+from confiq import ConfigHandle
+from confiq import hookimpl
 from confiq.sources._memory import MemorySource
 
 
@@ -14,29 +14,29 @@ class Settings(BaseModel, frozen=True):
     name: str = "initial"
 
 
-def test_create_returns_config_handle() -> None:
+def test_create_with_valid_sources() -> None:
     handle = ConfigHandle.create(Settings, sources=[MemorySource({"name": "hello"})])
     assert isinstance(handle, ConfigHandle)
 
 
-def test_current_returns_initial_value() -> None:
+def test_current_with_initial_load() -> None:
     handle = ConfigHandle.create(Settings, sources=[MemorySource({"name": "hello"})])
     assert handle.current().name == "hello"
 
 
-def test_reload_returns_model_instance() -> None:
+def test_reload_with_valid_sources() -> None:
     handle = ConfigHandle.create(Settings, sources=[MemorySource({"name": "first"})])
     result = handle.reload()
     assert isinstance(result, Settings)
 
 
-def test_reload_updates_current() -> None:
+def test_reload_with_existing_state() -> None:
     handle = ConfigHandle.create(Settings, sources=[MemorySource({"name": "first"})])
     handle.reload()
     assert isinstance(handle.current(), Settings)
 
 
-def test_on_reload_subscriber_called() -> None:
+def test_on_reload_with_registered_subscriber() -> None:
     handle = ConfigHandle.create(Settings, sources=[MemorySource({"name": "v1"})])
     received: list[tuple[Any, Any]] = []
 
@@ -50,7 +50,7 @@ def test_on_reload_subscriber_called() -> None:
     assert isinstance(received[0][1], Settings)
 
 
-def test_on_reload_subscriber_receives_old_and_new() -> None:
+def test_on_reload_with_registered_subscriber_old_and_new() -> None:
     handle = ConfigHandle.create(Settings, sources=[MemorySource({"name": "original"})])
     pairs: list[tuple[Settings, Settings]] = []
 
@@ -66,7 +66,7 @@ def test_on_reload_subscriber_receives_old_and_new() -> None:
     assert isinstance(new, Settings)
 
 
-def test_reentrancy_raises_runtime_error() -> None:
+def test_reload_with_reentrant_call() -> None:
     """A confiq_post_load hookimpl that calls reload() on the same thread triggers reentrancy."""
     handle_ref: list[ConfigHandle[Settings]] = []
     caught: list[Exception] = []

@@ -36,6 +36,8 @@ class _IniLoader:
     def confiq_load_file(self, path: Path) -> dict[str, Any] | None:
         if path.suffix not in {".ini", ".cfg"}:
             return None
+        if not path.exists():
+            return None
         import configparser
 
         cp: configparser.ConfigParser = configparser.ConfigParser()
@@ -111,7 +113,8 @@ def _register_optional_loaders(pm: pluggy.PluginManager) -> None:
                 if path.suffix != ".toml":
                     return None
                 try:
-                    return tomllib.load(path.open("rb"))
+                    with path.open("rb") as f:
+                        return tomllib.load(f)
                 except tomllib.TOMLDecodeError as exc:
                     raise SourceParseError(f"TOML parse error in {path}: {exc}") from exc
                 except FileNotFoundError:

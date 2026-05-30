@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Any
 
 
-def deep_merge(base: dict, overlay: Mapping) -> dict:  # type: ignore[type-arg]
+def deep_merge(base: dict[str, Any], overlay: Mapping[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = dict(base)
     for key, overlay_value in overlay.items():
         base_value: Any = result.get(key)
