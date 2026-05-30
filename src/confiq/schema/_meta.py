@@ -14,7 +14,7 @@ def field_meta(model: type, field_name: str) -> ConfigField | None:
     except (TypeError, NameError, AttributeError):
         return None
 
-    annotated_type = hints.get(field_name)
+    annotated_type: object | None = hints.get(field_name)
     if annotated_type is None:
         return None
 

@@ -38,7 +38,7 @@ class _IniLoader:
             return None
         import configparser
 
-        cp = configparser.ConfigParser()
+        cp: configparser.ConfigParser = configparser.ConfigParser()
         cp.read(path)
         return {s: dict(cp[s]) for s in cp.sections()}
 
@@ -69,7 +69,7 @@ class _PydanticAdapterProvider:
 
 
 def _make_plugin_manager() -> pluggy.PluginManager:
-    pm = pluggy.PluginManager("confiq")
+    pm: pluggy.PluginManager = pluggy.PluginManager("confiq")
     pm.add_hookspecs(ConfiqSpecs)
     pm.register(_JsonLoader())
     pm.register(_IniLoader())

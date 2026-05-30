@@ -58,7 +58,6 @@ class ConsulSource:
 
         client: Any = consul.Consul(host=self._host, port=self._port)
         try:
-            _index: Any
             items: list[dict[str, Any]] | None
             _index, items = client.kv.get(self._prefix, recurse=True)
         except Exception as exc:
@@ -73,6 +72,7 @@ class ConsulSource:
 
         prefix_strip: str = self._prefix.rstrip("/") + "/" if self._prefix else ""
 
+        item: dict[str, Any]
         for item in items:
             raw_key: str = item["Key"]
             key: str = raw_key[len(prefix_strip):] if prefix_strip and raw_key.startswith(prefix_strip) else raw_key

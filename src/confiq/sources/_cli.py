@@ -37,9 +37,12 @@ class CliSource:
 
             body: str = token[2:]
 
+            key: str
+            value_str: str
+            coerced_value: Any
             if "=" in body:
                 key, value_str = body.split("=", 1)
-                coerced_value: Any = coerce_env_value(value_str)
+                coerced_value = coerce_env_value(value_str)
             elif (
                 i + 1 < len(tokens)
                 and not tokens[i + 1].startswith("--")

@@ -22,6 +22,10 @@ from confiq.exceptions import ConfiqError
 
 
 if TYPE_CHECKING:
+    import pluggy
+
+    from confiq._hookspecs import SchemaAdapter
+    from confiq._resolver import ResolvedSnapshot
     from confiq.sources._protocol import AsyncSource
     from confiq.sources._protocol import Source
 
@@ -60,13 +64,14 @@ async def _gather_async(
 def _fetch_sources(
     sources: list[Source | AsyncSource],
 ) -> list[tuple[str, Any]]:
-    has_async = any(
+    has_async: bool = any(
         asyncio.iscoroutinefunction(getattr(s, "fetch", None)) for s in sources
     )
     if has_async:
         def _run_async() -> list[tuple[str, Any]]:
             return asyncio.run(_gather_async(sources))
 
+        exe: ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=1) as exe:
             return exe.submit(_run_async).result()
 
@@ -79,12 +84,12 @@ def _resolve_config(
     strict: bool,
     pm: Any,
 ) -> T | SchemalessConfig:
-    snapshot = resolve(fetched, schema, strict=strict)
+    snapshot: ResolvedSnapshot = resolve(fetched, schema, strict=strict)
 
     if schema is None:
         return SchemalessConfig(snapshot.merged)
 
-    adapter = pm.hook.confiq_get_schema_adapter(schema=schema)
+    adapter: SchemaAdapter | None = pm.hook.confiq_get_schema_adapter(schema=schema)
     if adapter is None:
         raise TypeError(f"No schema adapter found for {schema!r}")
 
@@ -132,16 +137,16 @@ def load(
     plugins: list[object] | None = None,
     strict: bool = True,
 ) -> T | SchemalessConfig:
-    pm = _make_plugin_manager()
+    pm: pluggy.PluginManager = _make_plugin_manager()
     if plugins is not None:
         for plugin in plugins:
             pm.register(plugin)
 
-    sources_copy = list(sources)
+    sources_copy: list[Source | AsyncSource] = list(sources)
     pm.hook.confiq_pre_load(schema=schema, sources=sources_copy)
 
     try:
-        fetched = _fetch_sources(sources_copy)
+        fetched: list[tuple[str, Any]] = _fetch_sources(sources_copy)
         return _resolve_config(schema, fetched, strict, pm)
     except ConfiqError as exc:
         pm.hook.confiq_on_error(error=exc)
@@ -155,16 +160,16 @@ async def load_async(
     plugins: list[object] | None = None,
     strict: bool = True,
 ) -> T | SchemalessConfig:
-    pm = _make_plugin_manager()
+    pm: pluggy.PluginManager = _make_plugin_manager()
     if plugins is not None:
         for plugin in plugins:
             pm.register(plugin)
 
-    sources_copy = list(sources)
+    sources_copy: list[Source | AsyncSource] = list(sources)
     pm.hook.confiq_pre_load(schema=schema, sources=sources_copy)
 
     try:
-        fetched = await _gather_async(sources_copy)
+        fetched: list[tuple[str, Any]] = await _gather_async(sources_copy)
         return _resolve_config(schema, fetched, strict, pm)
     except ConfiqError as exc:
         pm.hook.confiq_on_error(error=exc)
@@ -176,6 +181,7 @@ def _notify(
     old: Any,
     new: Any,
 ) -> None:
+    fn: Callable[[Any, Any], None]
     for fn in subscribers:
         try:
             fn(old, new)
@@ -224,7 +230,7 @@ class ConfigHandle(Generic[T]):
             old: T = self._current
             self._current = new
 
-        subscribers = list(self._subscribers)
+        subscribers: list[Callable[[T, T], None]] = list(self._subscribers)
         threading.Thread(
             target=_notify, args=(subscribers, old, new), daemon=True
         ).start()
@@ -238,7 +244,7 @@ class ConfigHandle(Generic[T]):
             old: T = self._current
             self._current = new
 
-        subscribers = list(self._subscribers)
+        subscribers: list[Callable[[T, T], None]] = list(self._subscribers)
         threading.Thread(
             target=_notify, args=(subscribers, old, new), daemon=True
         ).start()

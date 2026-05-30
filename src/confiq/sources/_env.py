@@ -24,6 +24,7 @@ class EnvSource:
     def fetch(self) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for raw_key, raw_value in os.environ.items():
+            key: str
             if self._prefix:
                 if not raw_key.startswith(self._prefix):
                     continue

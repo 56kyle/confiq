@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 from typing import Any
 from typing import get_type_hints
 
@@ -10,6 +11,10 @@ from confiq._merge import deep_merge
 from confiq._snapshot import ResolvedSnapshot
 from confiq.exceptions import ConflictingSourceError
 from confiq.schema._meta import field_meta
+
+
+if TYPE_CHECKING:
+    from confiq.schema._field import ConfigField
 
 
 def resolve(
@@ -27,15 +32,15 @@ def resolve(
         _collect_leaves(mapping, "", provenance, source_name)
 
     if schema is not None:
-        hints = get_type_hints(schema, include_extras=True)
+        hints: dict[str, Any] = get_type_hints(schema, include_extras=True)
 
         for field_name, _annotated_type in hints.items():
-            field = field_meta(schema, field_name)
+            field: ConfigField | None = field_meta(schema, field_name)
             if field is None:
                 continue
 
-            lookup_key = field.file_key if field.file_key else field_name
-            actual_source = provenance.get(lookup_key)
+            lookup_key: str = field.file_key if field.file_key else field_name
+            actual_source: str | None = provenance.get(lookup_key)
 
             if field.sources is not None and actual_source is not None:
                 if actual_source not in field.sources:
@@ -68,7 +73,7 @@ def resolve(
                 )
 
         if strict:
-            schema_keys = set(hints.keys())
+            schema_keys: set[str] = set(hints.keys())
             for key in merged:
                 if key not in schema_keys:
                     warnings.warn(
@@ -88,7 +93,7 @@ def _collect_leaves(
     source_name: str,
 ) -> None:
     for key, value in mapping.items():
-        dotted = f"{prefix}.{key}" if prefix else key
+        dotted: str = f"{prefix}.{key}" if prefix else key
         if isinstance(value, Mapping):
             _collect_leaves(value, dotted, provenance, source_name)
         else:

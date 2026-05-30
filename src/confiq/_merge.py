@@ -9,7 +9,7 @@ from typing import Any
 def deep_merge(base: dict, overlay: Mapping) -> dict:  # type: ignore[type-arg]
     result: dict[str, Any] = dict(base)
     for key, overlay_value in overlay.items():
-        base_value = result.get(key)
+        base_value: Any = result.get(key)
         if isinstance(base_value, Mapping) and isinstance(overlay_value, Mapping):
             result[key] = deep_merge(dict(base_value), overlay_value)
         else:

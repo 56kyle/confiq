@@ -24,7 +24,7 @@ def get_override() -> dict[str, Any] | None:
 @contextmanager
 def override(**patches: Any) -> Generator[None, None, None]:
     """Context manager that installs a per-task config overlay via ContextVar."""
-    token = _override_var.set(patches)
+    token: contextvars.Token[dict[str, Any] | None] = _override_var.set(patches)
     try:
         yield
     finally:

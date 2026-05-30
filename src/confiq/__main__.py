@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import importlib
 import json
+import types
 from typing import TYPE_CHECKING
+from typing import Any
 
 import typer
 
@@ -16,6 +18,8 @@ from confiq.sources._file import FileSource
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from confiq._load import SchemalessConfig
+
 
 app: typer.Typer = typer.Typer(help="confiq — inspect and validate config files.")
 
@@ -25,7 +29,7 @@ def show(
 ) -> None:
     """Pretty-print a config file's merged content."""
     try:
-        cfg = load(sources=[FileSource(path)])
+        cfg: SchemalessConfig = load(sources=[FileSource(path)])
     except SourceUnavailableError:
         typer.echo(f"error: file not found: {path}", err=True)
         raise typer.Exit(1)
@@ -44,7 +48,7 @@ def validate(
 ) -> None:
     """Validate a config file, optionally against a pydantic schema."""
     try:
-        source = FileSource(path)
+        source: FileSource = FileSource(path)
         if schema is None:
             load(sources=[source])
         else:
@@ -56,8 +60,8 @@ def validate(
                 )
                 raise typer.Exit(1)
             try:
-                mod = importlib.import_module(module_path)
-                schema_cls = getattr(mod, class_name)
+                mod: types.ModuleType = importlib.import_module(module_path)
+                schema_cls: type[Any] = getattr(mod, class_name)
             except (ImportError, AttributeError) as exc:
                 typer.echo(f"error: could not import schema {schema!r}: {exc}", err=True)
                 raise typer.Exit(1)
