@@ -717,7 +717,7 @@ snapshot reference). It uses the same pattern as Design A:
 | `load()` return value attribute access | none | frozen model; immutable |
 | `handle.current()` | none | single `LOAD_ATTR` |
 | `handle.reload()` | `threading.Lock` | serializes snapshot construction |
-| `confiq_pre_load`, `confiq_transform_value`, `confiq_post_load` hooks | inside lock | run as part of build |
+| `confiq_pre_load`, `confiq_post_load` hooks | inside lock | run as part of build |
 | `confiq_on_reload` subscribers | none (daemon thread, outside lock) | prevents reentrancy deadlock |
 | `override()` context | none (`ContextVar`) | async-safe; no shared state |
 
@@ -826,12 +826,6 @@ class ConfiqSpecs:
         """Called before resolution begins with a shallow copy of the sources list.
         Mutations affect only this load call."""
 
-    @hookspec(firstresult=True)
-    def confiq_transform_value(
-        self, field_path: str, raw_value: object, field_info: "ConfigField | None"
-    ) -> object:
-        """Per-field transform before pydantic validation. Return None to pass."""
-
     @hookspec
     def confiq_post_load(self, config: object) -> None:
         """Called after a successful load. Config is frozen; read-only."""
@@ -884,9 +878,6 @@ class SchemaAdapter(Protocol):
 are local to this load call and do not affect the handle's source list. Use
 case: injecting a `MemorySource` with computed defaults, or removing a source
 based on an environment condition.
-
-`confiq_transform_value` — `firstresult=True`; runs for every field before
-pydantic sees the value. Use case: secret decryption, base64 decoding.
 
 `confiq_post_load` — read-only. Use case: audit logging, metrics, validation
 that requires cross-field logic outside pydantic's model validators.
