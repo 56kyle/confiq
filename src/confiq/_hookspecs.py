@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from confiq.exceptions import ConfiqError
-    from confiq.schema._field import ConfigField
 
 hookspec = pluggy.HookspecMarker("confiq")
 hookimpl = pluggy.HookimplMarker("confiq")
@@ -48,15 +47,6 @@ class ConfiqSpecs:
 
         Mutations affect only this load call.
         """
-
-    @hookspec(firstresult=True)
-    def confiq_transform_value(
-        self,
-        field_path: str,
-        raw_value: object,
-        field_info: ConfigField | None,
-    ) -> object:
-        """Per-field transform before pydantic validation. Return None to pass."""
 
     @hookspec
     def confiq_post_load(self, config: object) -> None:

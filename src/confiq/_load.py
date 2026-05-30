@@ -93,9 +93,6 @@ def _resolve_config(
     if adapter is None:
         raise TypeError(f"No schema adapter found for {schema!r}")
 
-    # confiq_transform_value is a per-field extension point for plugins
-    # (e.g. secret decryption, base64 decoding); not driven inline in v1.
-
     try:
         validated: T = adapter.validate(snapshot.merged)
     except ValidationError as exc:
