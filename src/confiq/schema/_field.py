@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ConfigField:
+    """Metadata for defining a Config Field's metadata."""
     env: str | None = None
     cli: str | None = None
     file_key: str | None = None

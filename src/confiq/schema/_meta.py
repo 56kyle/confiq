@@ -9,6 +9,7 @@ from confiq.schema._field import ConfigField
 
 
 def field_meta(model: type, field_name: str) -> ConfigField | None:
+    """Returns a Config's Field's metadata if present."""
     try:
         hints: dict[str, Any] = typing.get_type_hints(model, include_extras=True)
     except (TypeError, NameError, AttributeError):
