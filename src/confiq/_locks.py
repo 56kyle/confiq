@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 
-_REENTRANCY_ERROR = (
+_REENTRANCY_ERROR: str = (
     "confiq: re-entered the config write lock from the same thread (deadlock avoided). "
     "A hookimpl or subscriber tried to trigger reload synchronously. "
     "Move that work to a separate thread or schedule it on the event loop."
