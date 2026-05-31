@@ -7,6 +7,7 @@ from typing import Any
 
 
 def deep_merge(base: dict[str, Any], overlay: Mapping[str, Any]) -> dict[str, Any]:
+    """Merges two dictionaries together at many layers."""
     result: dict[str, Any] = dict(base)
     for key, overlay_value in overlay.items():
         base_value: Any = result.get(key)
@@ -18,6 +19,7 @@ def deep_merge(base: dict[str, Any], overlay: Mapping[str, Any]) -> dict[str, An
 
 
 def _freeze(obj: Any) -> Any:
+    """Freezes the provided object if possible."""
     if isinstance(obj, dict):
         return MappingProxyType({k: _freeze(v) for k, v in obj.items()})
     if isinstance(obj, list):

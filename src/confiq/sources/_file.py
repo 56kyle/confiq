@@ -1,18 +1,13 @@
 """Module containing the file-based config source used throughout the confiq package."""
-
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 from typing import Any
 
-from confiq._plugins import _make_plugin_manager
 from confiq.exceptions import SourceParseError
 from confiq.exceptions import SourceUnavailableError
-
-
-if TYPE_CHECKING:
-    import pluggy
+from confiq.loaders import Loader
+from confiq.loaders import default_loaders
 
 
 class FileSource:
@@ -22,20 +17,19 @@ class FileSource:
         *,
         required: bool = True,
         name: str = "file",
-        plugin_manager: pluggy.PluginManager | None = None,
+        loaders: list[Loader] | None = None,
     ) -> None:
         self.name: str = name
         self._path: Path = Path(path)
         self._required: bool = required
-        self._plugin_manager: pluggy.PluginManager | None = plugin_manager
+        self._loaders: list[Loader] = loaders if loaders is not None else default_loaders()
 
     def fetch(self) -> dict[str, Any]:
-        pm: pluggy.PluginManager = (
-            self._plugin_manager if self._plugin_manager is not None else _make_plugin_manager()
-        )
-        result: dict[str, Any] | None = pm.hook.confiq_load_file(path=self._path)
-        if result is not None:
-            return result
+        loader: Loader
+        for loader in self._loaders:
+            result: dict[str, Any] | None = loader.load(self._path)
+            if result is not None:
+                return result
         if not self._path.exists():
             if self._required:
                 raise SourceUnavailableError(

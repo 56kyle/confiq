@@ -10,7 +10,6 @@ import pluggy
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from pathlib import Path
 
     from confiq.exceptions import ConfiqError
 
@@ -32,10 +31,6 @@ class SchemaAdapter(Protocol):
 
 class ConfiqSpecs:
     """Pluggy hookspec definitions for the confiq plugin system."""
-
-    @hookspec(firstresult=True)
-    def confiq_load_file(self, path: Path) -> dict[str, Any] | None:
-        """Load a file; return its dict, or None to pass to the next handler."""
 
     @hookspec(firstresult=True)
     def confiq_get_schema_adapter(self, schema: type) -> SchemaAdapter | None:

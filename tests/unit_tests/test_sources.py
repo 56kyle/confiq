@@ -130,6 +130,32 @@ class TestFileSource:
         src = FileSource(str(cfg))
         assert src.fetch() == {"k": "v"}
 
+    def test_custom_loader_called_first(self, tmp_path: Path) -> None:
+        from confiq.loaders import default_loaders
+
+        class UpperLoader:
+            def load(self, path):  # noqa: ANN001
+                if path.suffix != ".json":
+                    return None
+                return {"injected": True}
+
+        cfg = tmp_path / "config.json"
+        cfg.write_text(json.dumps({"injected": False}))
+        src = FileSource(cfg, loaders=[UpperLoader(), *default_loaders()])
+        assert src.fetch() == {"injected": True}
+
+    def test_custom_loader_only_no_default(self, tmp_path: Path) -> None:
+        class CustomLoader:
+            def load(self, path):  # noqa: ANN001
+                if path.suffix != ".custom":
+                    return None
+                return {"custom": True}
+
+        f = tmp_path / "config.custom"
+        f.write_text("irrelevant")
+        src = FileSource(f, loaders=[CustomLoader()])
+        assert src.fetch() == {"custom": True}
+
 
 class TestCliSource:
     def test_key_equals_value(self) -> None:
