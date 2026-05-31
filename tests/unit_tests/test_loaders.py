@@ -105,6 +105,39 @@ class TestYamlLoader:
         assert YamlLoader().load(tmp_path / "missing.yaml") is None
 
 
+class TestTomlLoader:
+    def test_loads_toml_file(self, tmp_path: Path) -> None:
+        pytest.importorskip("confiq.loaders._toml", reason="tomllib/tomli not available")
+        from confiq.loaders._toml import TomlLoader
+
+        f = tmp_path / "cfg.toml"
+        f.write_bytes(b'key = "value"\n')
+        assert TomlLoader().load(f) == {"key": "value"}
+
+    def test_returns_none_for_wrong_suffix(self, tmp_path: Path) -> None:
+        pytest.importorskip("confiq.loaders._toml", reason="tomllib/tomli not available")
+        from confiq.loaders._toml import TomlLoader
+
+        f = tmp_path / "cfg.json"
+        f.write_text("{}")
+        assert TomlLoader().load(f) is None
+
+    def test_returns_none_for_missing_file(self, tmp_path: Path) -> None:
+        pytest.importorskip("confiq.loaders._toml", reason="tomllib/tomli not available")
+        from confiq.loaders._toml import TomlLoader
+
+        assert TomlLoader().load(tmp_path / "missing.toml") is None
+
+    def test_raises_source_parse_error_on_bad_toml(self, tmp_path: Path) -> None:
+        pytest.importorskip("confiq.loaders._toml", reason="tomllib/tomli not available")
+        from confiq.loaders._toml import TomlLoader
+
+        f = tmp_path / "cfg.toml"
+        f.write_bytes(b"not = valid = toml\n")
+        with pytest.raises(SourceParseError):
+            TomlLoader().load(f)
+
+
 class TestDefaultLoaders:
     def test_returns_non_empty_list(self) -> None:
         assert len(default_loaders()) >= 2

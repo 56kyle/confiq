@@ -1,4 +1,4 @@
-"""Module containing built-in pluggy plugin implementations and the plugin manager factory used throughout the confiq package."""
+"""Module containing the Pydantic schema adapter and the plugin manager factory used throughout the confiq package."""
 from __future__ import annotations
 
 from typing import Any

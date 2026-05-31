@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
+from typing import Any
 
 import pytest
 
@@ -10,6 +11,7 @@ from confiq.exceptions import SourceUnavailableError
 from confiq.sources import CliSource
 from confiq.sources import EnvSource
 from confiq.sources import FileSource
+from confiq.loaders import default_loaders
 from confiq.sources import MemorySource
 
 
@@ -131,10 +133,8 @@ class TestFileSource:
         assert src.fetch() == {"k": "v"}
 
     def test_custom_loader_called_first(self, tmp_path: Path) -> None:
-        from confiq.loaders import default_loaders
-
         class UpperLoader:
-            def load(self, path):  # noqa: ANN001
+            def load(self, path: Path) -> dict[str, Any] | None:
                 if path.suffix != ".json":
                     return None
                 return {"injected": True}
@@ -145,8 +145,10 @@ class TestFileSource:
         assert src.fetch() == {"injected": True}
 
     def test_custom_loader_only_no_default(self, tmp_path: Path) -> None:
+        from typing import Any
+
         class CustomLoader:
-            def load(self, path):  # noqa: ANN001
+            def load(self, path: Path) -> dict[str, Any] | None:
                 if path.suffix != ".custom":
                     return None
                 return {"custom": True}

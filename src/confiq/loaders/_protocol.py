@@ -13,6 +13,9 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class Loader(Protocol):
-    """Attempts to parse a file; returns its dict or None if this format is not handled."""
+    """Attempts to parse a file; returns its dict or None if this format is not handled.
+
+    Raises SourceParseError if the format matches but the file content is malformed.
+    """
 
     def load(self, path: Path) -> dict[str, Any] | None: ...

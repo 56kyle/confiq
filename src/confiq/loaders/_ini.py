@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing import Any
 
+from confiq.exceptions import SourceParseError
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -18,5 +20,8 @@ class IniLoader:
         import configparser
 
         cp: configparser.ConfigParser = configparser.ConfigParser()
-        cp.read(path)
-        return {s: dict(cp[s]) for s in cp.sections()}
+        try:
+            cp.read(path)
+            return {s: dict(cp[s]) for s in cp.sections()}
+        except configparser.Error as exc:
+            raise SourceParseError(f"INI parse error in {path}: {exc}") from exc

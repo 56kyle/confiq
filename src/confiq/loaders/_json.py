@@ -1,6 +1,7 @@
 """Module containing the JSON file loader used throughout the confiq loaders subpackage."""
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -15,8 +16,6 @@ class JsonLoader:
     def load(self, path: Path) -> dict[str, Any] | None:
         if path.suffix != ".json":
             return None
-        import json
-
         try:
             return json.loads(path.read_text())
         except json.JSONDecodeError as exc:
