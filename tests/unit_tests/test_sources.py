@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
 from typing import Any
+from typing import TYPE_CHECKING
 
 import pytest
 
 from confiq.exceptions import SourceParseError
 from confiq.exceptions import SourceUnavailableError
+from confiq.loaders import default_loaders
 from confiq.sources import EnvSource
 from confiq.sources import FileSource
-from confiq.loaders import default_loaders
 from confiq.sources import MemorySource
 
 

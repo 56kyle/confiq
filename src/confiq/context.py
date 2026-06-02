@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import contextvars
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
 from typing import Any
+from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:

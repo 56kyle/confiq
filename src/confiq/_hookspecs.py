@@ -1,9 +1,9 @@
 """Module containing pluggy hookspec definitions and the SchemaAdapter protocol used throughout the confiq package."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from typing import Any
 from typing import Protocol
+from typing import TYPE_CHECKING
 
 import pluggy
 

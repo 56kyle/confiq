@@ -7,9 +7,9 @@ from collections.abc import Callable
 from collections.abc import Iterator
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
 from typing import Any
 from typing import Generic
+from typing import TYPE_CHECKING
 from typing import TypeVar
 from typing import overload
 

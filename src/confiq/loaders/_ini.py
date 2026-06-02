@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import configparser
-import io
 from typing import Any
 
 from confiq.exceptions import SourceParseError

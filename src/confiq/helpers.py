@@ -1,8 +1,8 @@
 """Module containing convenience helpers for loading config from env vars and files used by the confiq package."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from typing import Any
+from typing import TYPE_CHECKING
 from typing import TypeVar
 from typing import overload
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
 from typing import Any
+from typing import TYPE_CHECKING
 from typing import get_type_hints
 
 from confiq._merge import deep_merge

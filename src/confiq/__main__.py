@@ -4,8 +4,8 @@ from __future__ import annotations
 import importlib
 import json
 import types
-from typing import TYPE_CHECKING
 from typing import Any
+from typing import TYPE_CHECKING
 
 import typer
 
