@@ -14,3 +14,7 @@ class ConfigBind:
     """
 
     path: str
+
+    def __post_init__(self) -> None:
+        if not self.path.strip():
+            raise ValueError("ConfigBind path must be a non-empty dotted string")

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 from typing import Annotated
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 from confiq.schema._bind import ConfigBind
 from confiq.sources.cli._argparse import ArgparseSource
+from confiq.sources.cli._bind import CLI_SOURCE_NAME
+from confiq.sources.cli._bind import _set_nested
 
 
 class TestConfigBind:
@@ -17,10 +19,15 @@ class TestConfigBind:
         assert bind.path == "database.host"
 
     def test_frozen(self) -> None:
-        import dataclasses
         bind = ConfigBind("x")
         with pytest.raises(dataclasses.FrozenInstanceError):
             bind.path = "y"  # type: ignore[misc]
+
+
+class TestSetNested:
+    def test_empty_path_raises(self) -> None:
+        with pytest.raises(ValueError):
+            _set_nested({}, "", "x")
 
 
 class TestClickSource:
@@ -85,15 +92,15 @@ class TestClickSource:
         assert result == {"server": {"port": 9090}}
 
     def test_default_name(self) -> None:
-        click = pytest.importorskip("click")
+        pytest.importorskip("click")
         from confiq.sources.cli._click import ClickSource
         ctx = MagicMock()
         src = ClickSource(ctx, lambda: None)
-        assert src.name == "cli"
+        assert src.name == CLI_SOURCE_NAME
 
 
 class TestArgparseSource:
-    def test_extracts_non_default_value(self) -> None:
+    def test_extracts_explicitly_set_param(self) -> None:
         def command(host: Annotated[str, ConfigBind("database.host")] = "localhost") -> None:
             pass
 
@@ -136,4 +143,5 @@ class TestArgparseSource:
         parser = argparse.ArgumentParser()
         namespace = parser.parse_args([])
         src = ArgparseSource(namespace, parser, lambda: None)
-        assert src.name == "cli"
+        assert src.name == CLI_SOURCE_NAME
+

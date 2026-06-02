@@ -90,7 +90,7 @@ class TestConfiqOnReloadHook:
 
 def test_reload_with_reentrant_call() -> None:
     """A confiq_post_load hookimpl that calls reload() on the same thread triggers reentrancy."""
-    handle_ref: list[ConfigHandle[Settings]] = []
+    handle_ref: list[ConfigHandle[Settings]] = []  # list allows assignment inside nested function scope
     caught: list[Exception] = []
 
     class _ReentrantPlugin:

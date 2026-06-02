@@ -9,6 +9,7 @@ from typing import get_origin
 from typing import get_type_hints
 
 from confiq.schema._bind import ConfigBind
+from confiq.sources.cli._bind import CLI_SOURCE_NAME
 from confiq.sources.cli._bind import _set_nested
 
 
@@ -21,6 +22,7 @@ class ClickSource:
     """
 
     def __init__(self, ctx: Any, command: Callable[..., Any]) -> None:
+        # Deferred so import succeeds without click installed; confiq[click] extra is required
         try:
             import click  # noqa: F401
         except ImportError:
@@ -28,7 +30,7 @@ class ClickSource:
                 "confiq[click] extra is required for ClickSource. "
                 "Install it with: pip install confiq[click]"
             ) from None
-        self.name: str = "cli"
+        self.name: str = CLI_SOURCE_NAME
         self._ctx: Any = ctx
         self._command: Callable[..., Any] = command
 

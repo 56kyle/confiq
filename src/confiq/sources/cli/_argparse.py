@@ -10,6 +10,7 @@ from typing import get_origin
 from typing import get_type_hints
 
 from confiq.schema._bind import ConfigBind
+from confiq.sources.cli._bind import CLI_SOURCE_NAME
 from confiq.sources.cli._bind import _set_nested
 
 
@@ -27,7 +28,7 @@ class ArgparseSource:
         parser: argparse.ArgumentParser,
         command: Callable[..., Any],
     ) -> None:
-        self.name: str = "cli"
+        self.name: str = CLI_SOURCE_NAME
         self._namespace: argparse.Namespace = namespace
         self._parser: argparse.ArgumentParser = parser
         self._command: Callable[..., Any] = command

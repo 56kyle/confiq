@@ -95,7 +95,7 @@ def _enforce_source_restrictions(
             f"which is not in the allowed sources {field.sources!r}. "
             "Skipping value.",
             RuntimeWarning,
-            stacklevel=3,
+            stacklevel=4,
         )
         new_merged.pop(field_name, None)
     return new_merged
@@ -131,7 +131,7 @@ def _warn_deprecated(
             warnings.warn(
                 f"Config field '{field_name}' is deprecated: {field.deprecated}",
                 DeprecationWarning,
-                stacklevel=3,
+                stacklevel=4,
             )
 
 
@@ -148,7 +148,7 @@ def _warn_unknown_keys(
                 f"Source key '{key}' is not present in schema '{schema.__name__}' "
                 "and will be ignored.",
                 UserWarning,
-                stacklevel=3,
+                stacklevel=4,
             )
 
 
