@@ -8,7 +8,6 @@ import pytest
 
 from confiq.exceptions import SourceParseError
 from confiq.exceptions import SourceUnavailableError
-from confiq.sources import CliSource
 from confiq.sources import EnvSource
 from confiq.sources import FileSource
 from confiq.loaders import default_loaders
@@ -134,9 +133,13 @@ class TestFileSource:
 
     def test_custom_loader_called_first(self, tmp_path: Path) -> None:
         class UpperLoader:
-            def load(self, path: Path) -> dict[str, Any] | None:
-                if path.suffix != ".json":
-                    return None
+            def extensions(self) -> frozenset[str]:
+                return frozenset({".json"})
+
+            def wants_bytes(self) -> bool:
+                return False
+
+            def parse(self, data: bytes | str) -> dict[str, Any]:
                 return {"injected": True}
 
         cfg = tmp_path / "config.json"
@@ -145,12 +148,14 @@ class TestFileSource:
         assert src.fetch() == {"injected": True}
 
     def test_custom_loader_only_no_default(self, tmp_path: Path) -> None:
-        from typing import Any
-
         class CustomLoader:
-            def load(self, path: Path) -> dict[str, Any] | None:
-                if path.suffix != ".custom":
-                    return None
+            def extensions(self) -> frozenset[str]:
+                return frozenset({".custom"})
+
+            def wants_bytes(self) -> bool:
+                return False
+
+            def parse(self, data: bytes | str) -> dict[str, Any]:
                 return {"custom": True}
 
         f = tmp_path / "config.custom"
@@ -159,61 +164,3 @@ class TestFileSource:
         assert src.fetch() == {"custom": True}
 
 
-class TestCliSource:
-    def test_key_equals_value(self) -> None:
-        src = CliSource(["--host=localhost"])
-        assert src.fetch() == {"host": "localhost"}
-
-    def test_key_space_value(self) -> None:
-        src = CliSource(["--host", "localhost"])
-        assert src.fetch() == {"host": "localhost"}
-
-    def test_flag_boolean_true(self) -> None:
-        src = CliSource(["--debug"])
-        assert src.fetch() == {"debug": True}
-
-    def test_dotted_key_nesting(self) -> None:
-        src = CliSource(["--database.host=pg"])
-        assert src.fetch() == {"database": {"host": "pg"}}
-
-    def test_sentinel_stops_parsing(self) -> None:
-        src = CliSource(["--host=a", "--", "--host=b"])
-        result = src.fetch()
-        assert result == {"host": "a"}
-
-    def test_empty_key_raises(self) -> None:
-        src = CliSource(["--=value"])
-        with pytest.raises(ValueError):
-            src.fetch()
-
-    def test_empty_segment_raises(self) -> None:
-        src = CliSource(["--a..b=value"])
-        with pytest.raises(ValueError):
-            src.fetch()
-
-    def test_path_conflict_scalar_over_dict_raises(self) -> None:
-        src = CliSource(["--db.host=pg", "--db=flat"])
-        with pytest.raises(ValueError):
-            src.fetch()
-
-    def test_path_conflict_dict_over_scalar_raises(self) -> None:
-        src = CliSource(["--db=flat", "--db.host=pg"])
-        with pytest.raises(ValueError):
-            src.fetch()
-
-    def test_default_name(self) -> None:
-        src = CliSource([])
-        assert src.name == "cli"
-
-    def test_custom_name(self) -> None:
-        src = CliSource([], name="args")
-        assert src.name == "args"
-
-    def test_multiple_keys(self) -> None:
-        src = CliSource(["--host=pg", "--port=5432"])
-        result = src.fetch()
-        assert result == {"host": "pg", "port": 5432}
-
-    def test_empty_argv_returns_empty(self) -> None:
-        src = CliSource([])
-        assert src.fetch() == {}

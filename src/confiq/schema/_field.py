@@ -14,9 +14,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ConfigField:
-    """Metadata for defining a Config Field's metadata."""
+    """Annotation metadata for a config schema field."""
     env: str | None = None
-    cli: str | None = None
     file_key: str | None = None
     secret: bool = False
     parser: Callable[[str], Any] | None = None

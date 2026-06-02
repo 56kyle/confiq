@@ -10,7 +10,6 @@ from confiq.schema._field import ConfigField
 def test_defaults() -> None:
     field = ConfigField()
     assert field.env is None
-    assert field.cli is None
     assert field.file_key is None
     assert field.secret is False
     assert field.parser is None

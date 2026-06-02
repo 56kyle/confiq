@@ -22,7 +22,7 @@ class TestAwsSecretsManagerSource:
         mock_botocore.exceptions.ClientError = Exception
 
         with patch.dict("sys.modules", {"boto3": mock_boto3, "botocore": mock_botocore, "botocore.exceptions": mock_botocore.exceptions}):
-            from confiq.sources._aws import AwsSecretsManagerSource
+            from confiq.cloud._aws import AwsSecretsManagerSource
             src = AwsSecretsManagerSource("my-secret", region="us-east-1")
             result = src.fetch()
 
@@ -34,14 +34,14 @@ class TestAwsSecretsManagerSource:
         mock_botocore.exceptions.ClientError = Exception
 
         with patch.dict("sys.modules", {"boto3": mock_boto3, "botocore": mock_botocore, "botocore.exceptions": mock_botocore.exceptions}):
-            from confiq.sources._aws import AwsSecretsManagerSource
+            from confiq.cloud._aws import AwsSecretsManagerSource
             src = AwsSecretsManagerSource("s", region="us-east-1")
 
         assert src.name == "aws_secrets"
 
     def test_missing_dependency_raises_import_error(self) -> None:
         with patch.dict("sys.modules", {"boto3": None}), pytest.raises(ImportError, match="confiq\\[aws\\]"):
-            from confiq.sources._aws import AwsSecretsManagerSource
+            from confiq.cloud._aws import AwsSecretsManagerSource
             AwsSecretsManagerSource("x", region="us-east-1")
 
 
@@ -71,7 +71,7 @@ class TestGcpSecretManagerSource:
             "google.api_core": mock_google_api_core,
             "google.api_core.exceptions": mock_gcp_exceptions,
         }):
-            from confiq.sources._gcp import GcpSecretManagerSource
+            from confiq.cloud._gcp import GcpSecretManagerSource
             src = GcpSecretManagerSource("my-project", "my-secret")
             result = src.fetch()
 
@@ -89,7 +89,7 @@ class TestGcpSecretManagerSource:
             "google.api_core": mock_google_api_core,
             "google.api_core.exceptions": MagicMock(),
         }):
-            from confiq.sources._gcp import GcpSecretManagerSource
+            from confiq.cloud._gcp import GcpSecretManagerSource
             src = GcpSecretManagerSource("proj", "secret")
 
         assert src.name == "gcp_secrets"
@@ -97,7 +97,7 @@ class TestGcpSecretManagerSource:
     def test_missing_dependency_raises_import_error(self) -> None:
         with patch.dict("sys.modules", {"google.cloud.secretmanager": None}):
             with pytest.raises(ImportError, match="confiq\\[gcp\\]"):
-                from confiq.sources._gcp import GcpSecretManagerSource
+                from confiq.cloud._gcp import GcpSecretManagerSource
                 GcpSecretManagerSource("proj", "secret")
 
 
@@ -126,7 +126,7 @@ class TestAzureKeyVaultSource:
             "azure.core": mock_azure_core,
             "azure.core.exceptions": mock_azure_core.exceptions,
         }):
-            from confiq.sources._azure import AzureKeyVaultSource
+            from confiq.cloud._azure import AzureKeyVaultSource
             src = AzureKeyVaultSource("https://myvault.vault.azure.net/")
             result = src.fetch()
 
@@ -144,7 +144,7 @@ class TestAzureKeyVaultSource:
             "azure.core": MagicMock(),
             "azure.core.exceptions": MagicMock(),
         }):
-            from confiq.sources._azure import AzureKeyVaultSource
+            from confiq.cloud._azure import AzureKeyVaultSource
             src = AzureKeyVaultSource("https://vault.example.com/")
 
         assert src.name == "azure_keyvault"
@@ -152,7 +152,7 @@ class TestAzureKeyVaultSource:
     def test_missing_dependency_raises_import_error(self) -> None:
         with patch.dict("sys.modules", {"azure.identity": None}):
             with pytest.raises(ImportError, match="confiq\\[azure\\]"):
-                from confiq.sources._azure import AzureKeyVaultSource
+                from confiq.cloud._azure import AzureKeyVaultSource
                 AzureKeyVaultSource("https://vault.example.com/")
 
 
@@ -167,7 +167,7 @@ class TestVaultSource:
         mock_hvac.exceptions.VaultError = Exception
 
         with patch.dict("sys.modules", {"hvac": mock_hvac, "hvac.exceptions": mock_hvac.exceptions}):
-            from confiq.sources._vault import VaultSource
+            from confiq.cloud._vault import VaultSource
             src = VaultSource("http://vault:8200", "secret/myapp")
             result = src.fetch()
 
@@ -178,14 +178,14 @@ class TestVaultSource:
         mock_hvac.exceptions.VaultError = Exception
 
         with patch.dict("sys.modules", {"hvac": mock_hvac, "hvac.exceptions": mock_hvac.exceptions}):
-            from confiq.sources._vault import VaultSource
+            from confiq.cloud._vault import VaultSource
             src = VaultSource("http://vault:8200", "secret/myapp")
 
         assert src.name == "vault"
 
     def test_missing_dependency_raises_import_error(self) -> None:
         with patch.dict("sys.modules", {"hvac": None}), pytest.raises(ImportError, match="confiq\\[vault\\]"):
-            from confiq.sources._vault import VaultSource
+            from confiq.cloud._vault import VaultSource
             VaultSource("http://vault:8200", "secret/myapp")
 
 
@@ -202,7 +202,7 @@ class TestConsulSource:
         mock_consul.Consul.return_value = mock_client_instance
 
         with patch.dict("sys.modules", {"consul": mock_consul}):
-            from confiq.sources._consul import ConsulSource
+            from confiq.cloud._consul import ConsulSource
             src = ConsulSource(prefix="app/")
             result = src.fetch()
 
@@ -212,7 +212,7 @@ class TestConsulSource:
         mock_consul = MagicMock()
 
         with patch.dict("sys.modules", {"consul": mock_consul}):
-            from confiq.sources._consul import ConsulSource
+            from confiq.cloud._consul import ConsulSource
             src = ConsulSource()
 
         assert src.name == "consul"
@@ -220,5 +220,5 @@ class TestConsulSource:
     def test_missing_dependency_raises_import_error(self) -> None:
         with patch.dict("sys.modules", {"consul": None}):
             with pytest.raises(ImportError, match="confiq\\[consul\\]"):
-                from confiq.sources._consul import ConsulSource
+                from confiq.cloud._consul import ConsulSource
                 ConsulSource()

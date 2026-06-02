@@ -96,3 +96,36 @@ def test_strict_false_suppresses_unknown_key_warning() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         resolve([("env", {"host": "pg", "unknown": "x"})], schema=SimpleModel, strict=False)
+
+
+class FileKeyModel(BaseModel, frozen=True):
+    db_host: Annotated[str, ConfigField(file_key="database-host")] = "localhost"
+
+
+def test_file_key_renames_merged_key() -> None:
+    snapshot = resolve([("file", {"database-host": "pg"})], schema=FileKeyModel)
+    assert snapshot.merged.get("db_host") == "pg"
+    assert "database-host" not in snapshot.merged
+
+
+def test_file_key_updates_provenance() -> None:
+    snapshot = resolve([("file", {"database-host": "pg"})], schema=FileKeyModel)
+    assert snapshot.provenance.get("db_host") == "file"
+    assert "database-host" not in snapshot.provenance
+
+
+def test_deprecated_field_does_not_warn_when_source_restricted_and_removed() -> None:
+    """Field removed by source restriction should NOT trigger a deprecation warning."""
+    class DeprecatedRestrictedModel(BaseModel, frozen=True):
+        token: Annotated[str, ConfigField(
+            sources=("vault",),
+            on_source_violation="warn_and_skip",
+            deprecated="Use new_token instead.",
+        )] = ""
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        resolve([("env", {"token": "abc"})], schema=DeprecatedRestrictedModel)
+
+    warning_categories = [w.category for w in caught]
+    assert DeprecationWarning not in warning_categories

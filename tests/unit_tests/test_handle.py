@@ -66,6 +66,28 @@ def test_on_reload_with_registered_subscriber_old_and_new() -> None:
     assert isinstance(new, Settings)
 
 
+class TestConfiqOnReloadHook:
+    def test_fires_after_reload(self) -> None:
+        calls: list[tuple[Settings, Settings]] = []
+
+        class _OnReloadPlugin:
+            @hookimpl
+            def confiq_on_reload(self, old: object, new: object) -> None:
+                calls.append((old, new))  # type: ignore[arg-type]
+
+        handle = ConfigHandle.create(
+            Settings,
+            sources=[MemorySource({"name": "v1"})],
+            plugins=[_OnReloadPlugin()],
+        )
+        handle.reload()
+        time.sleep(0.1)
+        assert len(calls) == 1
+        old_cfg, new_cfg = calls[0]
+        assert isinstance(old_cfg, Settings)
+        assert isinstance(new_cfg, Settings)
+
+
 def test_reload_with_reentrant_call() -> None:
     """A confiq_post_load hookimpl that calls reload() on the same thread triggers reentrancy."""
     handle_ref: list[ConfigHandle[Settings]] = []

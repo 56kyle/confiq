@@ -44,8 +44,11 @@ gcp    = ["google-cloud-secret-manager>=2.18"]
 azure  = ["azure-identity>=1.15", "azure-keyvault-secrets>=4.7"]
 vault  = ["hvac>=2.0"]
 consul = ["py-consul>=1.7"]
+s3     = ["s3fs>=2026.4.0"]
+gcs    = ["gcsfs>=2026.4.0"]
+adl    = ["adlfs>=2024.7.0"]
 common = ["confiq[yaml,toml,watch]"]
-all    = ["confiq[yaml,toml,watch,click,aws,gcp,azure,vault,consul]"]
+all    = ["confiq[yaml,toml,watch,click,aws,gcp,azure,vault,consul,s3,gcs,adl]"]
 
 [dependency-groups]
 dev = [
@@ -74,7 +77,6 @@ docs = [
 [project.entry-points."confiq.sources"]
 file = "confiq.sources._file:FileSource"
 env  = "confiq.sources._env:EnvSource"
-cli  = "confiq.sources._cli:CliSource"
 
 [project.entry-points.confiq]
 

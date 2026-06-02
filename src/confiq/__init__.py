@@ -6,11 +6,13 @@ from confiq._load import ConfigHandle
 from confiq._load import SchemalessConfig
 from confiq._load import load
 from confiq._load import load_async
+from confiq.schema._bind import ConfigBind
 from confiq.schema._field import ConfigField
 from confiq.sources._memory import MemorySource
 
 
 __all__ = [
+    "ConfigBind",
     "ConfigField",
     "ConfigHandle",
     "MemorySource",

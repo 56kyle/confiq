@@ -1,7 +1,6 @@
 """Module containing the YAML file loader used throughout the confiq loaders subpackage."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from typing import Any
 
 import yaml
@@ -9,17 +8,15 @@ import yaml
 from confiq.exceptions import SourceParseError
 
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
 class YamlLoader:
-    def load(self, path: Path) -> dict[str, Any] | None:
-        if path.suffix not in {".yaml", ".yml"}:
-            return None
+    def extensions(self) -> frozenset[str]:
+        return frozenset({".yaml", ".yml"})
+
+    def wants_bytes(self) -> bool:
+        return False
+
+    def parse(self, data: bytes | str) -> dict[str, Any]:
         try:
-            return yaml.safe_load(path.read_text())
+            return yaml.safe_load(data)
         except yaml.YAMLError as exc:
-            raise SourceParseError(f"YAML parse error in {path}: {exc}") from exc
-        except FileNotFoundError:
-            return None
+            raise SourceParseError(f"YAML parse error: {exc}") from exc

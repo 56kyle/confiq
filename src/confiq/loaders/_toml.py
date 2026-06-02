@@ -1,7 +1,6 @@
 """Module containing the TOML file loader used throughout the confiq loaders subpackage."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from typing import Any
 
 try:
@@ -12,18 +11,16 @@ except ImportError:
 from confiq.exceptions import SourceParseError
 
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
 class TomlLoader:
-    def load(self, path: Path) -> dict[str, Any] | None:
-        if path.suffix != ".toml":
-            return None
+    def extensions(self) -> frozenset[str]:
+        return frozenset({".toml"})
+
+    def wants_bytes(self) -> bool:
+        return True
+
+    def parse(self, data: bytes | str) -> dict[str, Any]:
+        raw: str = data.decode("utf-8") if isinstance(data, bytes) else data
         try:
-            with path.open("rb") as f:
-                return tomllib.load(f)
+            return tomllib.loads(raw)
         except tomllib.TOMLDecodeError as exc:
-            raise SourceParseError(f"TOML parse error in {path}: {exc}") from exc
-        except FileNotFoundError:
-            return None
+            raise SourceParseError(f"TOML parse error: {exc}") from exc

@@ -13,6 +13,7 @@ from typing import Generic
 from typing import TypeVar
 from typing import overload
 
+import pluggy
 from pydantic import ValidationError
 
 from confiq._locks import ReentrancyGuard
@@ -23,8 +24,6 @@ from confiq.exceptions import ConfiqError
 
 
 if TYPE_CHECKING:
-    import pluggy
-
     from confiq._hookspecs import SchemaAdapter
     from confiq._resolver import ResolvedSnapshot
     from confiq.sources._protocol import AsyncSource
@@ -108,6 +107,40 @@ def _resolve_config(
     return validated
 
 
+def _load_with_pm(
+    schema: type[T] | None,
+    sources: list[Source | AsyncSource],
+    pm: pluggy.PluginManager,
+    *,
+    strict: bool = True,
+) -> T | SchemalessConfig:
+    sources_copy: list[Source | AsyncSource] = list(sources)
+    pm.hook.confiq_pre_load(schema=schema, sources=sources_copy)
+    try:
+        fetched: list[tuple[str, Any]] = _fetch_sources(sources_copy)
+        return _resolve_config(schema, fetched, strict, pm)
+    except ConfiqError as exc:
+        pm.hook.confiq_on_error(error=exc)
+        raise
+
+
+async def _load_with_pm_async(
+    schema: type[T] | None,
+    sources: list[Source | AsyncSource],
+    pm: pluggy.PluginManager,
+    *,
+    strict: bool = True,
+) -> T | SchemalessConfig:
+    sources_copy: list[Source | AsyncSource] = list(sources)
+    pm.hook.confiq_pre_load(schema=schema, sources=sources_copy)
+    try:
+        fetched: list[tuple[str, Any]] = await _gather_async(sources_copy)
+        return _resolve_config(schema, fetched, strict, pm)
+    except ConfiqError as exc:
+        pm.hook.confiq_on_error(error=exc)
+        raise
+
+
 @overload
 def load(
     schema: type[T],
@@ -139,16 +172,7 @@ def load(
     if plugins is not None:
         for plugin in plugins:
             pm.register(plugin)
-
-    sources_copy: list[Source | AsyncSource] = list(sources)
-    pm.hook.confiq_pre_load(schema=schema, sources=sources_copy)
-
-    try:
-        fetched: list[tuple[str, Any]] = _fetch_sources(sources_copy)
-        return _resolve_config(schema, fetched, strict, pm)
-    except ConfiqError as exc:
-        pm.hook.confiq_on_error(error=exc)
-        raise
+    return _load_with_pm(schema, sources, pm, strict=strict)
 
 
 async def load_async(
@@ -162,16 +186,7 @@ async def load_async(
     if plugins is not None:
         for plugin in plugins:
             pm.register(plugin)
-
-    sources_copy: list[Source | AsyncSource] = list(sources)
-    pm.hook.confiq_pre_load(schema=schema, sources=sources_copy)
-
-    try:
-        fetched: list[tuple[str, Any]] = await _gather_async(sources_copy)
-        return _resolve_config(schema, fetched, strict, pm)
-    except ConfiqError as exc:
-        pm.hook.confiq_on_error(error=exc)
-        raise
+    return await _load_with_pm_async(schema, sources, pm, strict=strict)
 
 
 def _invoke_subscriber(fn: Callable[[Any, Any], None], old: Any, new: Any) -> None:
@@ -191,6 +206,16 @@ def _notify(
         _invoke_subscriber(fn, old, new)
 
 
+def _notify_reload(
+    pm: pluggy.PluginManager,
+    subscribers: list[Callable[[Any, Any], None]],
+    old: Any,
+    new: Any,
+) -> None:
+    pm.hook.confiq_on_reload(old=old, new=new)
+    _notify(subscribers, old, new)
+
+
 class ConfigHandle(Generic[T]):
     """Live-reload handle for a typed config value.
 
@@ -201,12 +226,12 @@ class ConfigHandle(Generic[T]):
         self,
         schema: type[T],
         sources: list[Source | AsyncSource],
-        plugins: list[object] | None,
+        pm: pluggy.PluginManager,
         initial: T,
     ) -> None:
         self._schema: type[T] = schema
         self._sources: list[Source | AsyncSource] = sources
-        self._plugins: list[object] | None = plugins
+        self._pm: pluggy.PluginManager = pm
         self._current: T = initial
         self._guard: ReentrancyGuard = ReentrancyGuard()
         self._async_lock: asyncio.Lock = asyncio.Lock()
@@ -220,35 +245,45 @@ class ConfigHandle(Generic[T]):
         sources: list[Source | AsyncSource],
         plugins: list[object] | None = None,
     ) -> ConfigHandle[T]:
-        initial: T = load(schema, sources=sources, plugins=plugins)
-        return cls(schema, list(sources), plugins, initial)
+        pm: pluggy.PluginManager = _make_plugin_manager()
+        if plugins is not None:
+            for plugin in plugins:
+                pm.register(plugin)
+        initial: T = _load_with_pm(schema, list(sources), pm, strict=True)
+        return cls(schema, list(sources), pm, initial)
 
     def current(self) -> T:
         return self._current
 
     def reload(self) -> T:
         with self._guard:
-            new: T = load(self._schema, sources=self._sources, plugins=self._plugins)
+            new: T = _load_with_pm(self._schema, self._sources, self._pm, strict=True)
             old: T = self._current
             self._current = new
 
         subscribers: list[Callable[[T, T], None]] = list(self._subscribers)
+        pm: pluggy.PluginManager = self._pm
         threading.Thread(
-            target=_notify, args=(subscribers, old, new), daemon=True
+            target=_notify_reload,
+            args=(pm, subscribers, old, new),
+            daemon=True,
         ).start()
         return new
 
     async def reload_async(self) -> T:
         async with self._async_lock:
-            new: T = await load_async(
-                self._schema, sources=self._sources, plugins=self._plugins
+            new: T = await _load_with_pm_async(
+                self._schema, self._sources, self._pm, strict=True
             )
             old: T = self._current
             self._current = new
 
         subscribers: list[Callable[[T, T], None]] = list(self._subscribers)
+        pm: pluggy.PluginManager = self._pm
         threading.Thread(
-            target=_notify, args=(subscribers, old, new), daemon=True
+            target=_notify_reload,
+            args=(pm, subscribers, old, new),
+            daemon=True,
         ).start()
         return new
 

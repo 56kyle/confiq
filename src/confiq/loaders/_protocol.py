@@ -1,21 +1,30 @@
 """Module containing the Loader protocol used throughout the confiq loaders subpackage."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from typing import Any
 from typing import Protocol
 from typing import runtime_checkable
 
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-
 @runtime_checkable
 class Loader(Protocol):
-    """Attempts to parse a file; returns its dict or None if this format is not handled.
+    """Pure format parser for a config file's bytes or text content.
 
-    Raises SourceParseError if the format matches but the file content is malformed.
+    Raises SourceParseError if content is syntactically invalid for the format.
+    FileSource is responsible for all I/O; loaders receive pre-read data only.
     """
 
-    def load(self, path: Path) -> dict[str, Any] | None: ...
+    def extensions(self) -> frozenset[str]:
+        """Return the file suffixes this loader handles (e.g. frozenset({'.json'}))."""
+        ...
+
+    def wants_bytes(self) -> bool:
+        """Return True if parse() expects bytes, False if it expects a decoded str."""
+        ...
+
+    def parse(self, data: bytes | str) -> dict[str, Any]:
+        """Parse pre-read file content and return the config dict.
+
+        Raises SourceParseError on malformed content.
+        """
+        ...
