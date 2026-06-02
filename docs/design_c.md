@@ -128,20 +128,20 @@ confiq/
 │   ├── _memory.py       # MemorySource
 │   ├── _env.py          # EnvSource
 │   ├── _file.py         # FileSource — fsspec-backed; delegates parsing to Loader instances
-│   └── cli/
-│       ├── __init__.py  # exports: ClickSource, TyperSource, ArgparseSource
-│       ├── _bind.py     # _set_nested() utility
-│       ├── _click.py    # ClickSource / TyperSource (alias for Click/Typer frameworks)
-│       └── _argparse.py # ArgparseSource
-├── cloud/
-│   ├── __init__.py      # exports: VaultSource, AwsSecretsManagerSource,
-│   │                    #          GcpSecretManagerSource, AzureKeyVaultSource, ConsulSource
-│   ├── _require.py      # shared _require() helper for optional-dependency guard
-│   ├── _aws.py          # AwsSecretsManagerSource (requires [aws] extra)
-│   ├── _gcp.py          # GcpSecretManagerSource (requires [gcp] extra)
-│   ├── _azure.py        # AzureKeyVaultSource (requires [azure] extra)
-│   ├── _vault.py        # VaultSource (requires [vault] extra)
-│   └── _consul.py       # ConsulSource (requires [consul] extra)
+│   ├── cli/
+│   │   ├── __init__.py  # exports: ClickSource, TyperSource, ArgparseSource
+│   │   ├── _bind.py     # _set_nested() utility
+│   │   ├── _click.py    # ClickSource / TyperSource (alias for Click/Typer frameworks)
+│   │   └── _argparse.py # ArgparseSource
+│   └── cloud/
+│       ├── __init__.py  # exports: VaultSource, AwsSecretsManagerSource,
+│       │                #          GcpSecretManagerSource, AzureKeyVaultSource, ConsulSource
+│       ├── _require.py  # shared _require() helper for optional-dependency guard
+│       ├── _aws.py      # AwsSecretsManagerSource (requires [aws] extra)
+│       ├── _gcp.py      # GcpSecretManagerSource (requires [gcp] extra)
+│       ├── _azure.py    # AzureKeyVaultSource (requires [azure] extra)
+│       ├── _vault.py    # VaultSource (requires [vault] extra)
+│       └── _consul.py   # ConsulSource (requires [consul] extra)
 ├── loaders/
 │   ├── __init__.py
 │   ├── _protocol.py     # Loader protocol: extensions(), wants_bytes(), parse()
@@ -156,9 +156,9 @@ confiq/
 
 Underscore-prefixed modules are library internals; the public surface is
 `confiq.__init__`, `confiq.schema`, `confiq.sources`, `confiq.sources.cli`,
-`confiq.cloud`, `confiq.context`, `confiq.helpers`, and `confiq.errors`.
+`confiq.sources.cloud`, `confiq.context`, `confiq.helpers`, and `confiq.errors`.
 Cloud sources (`VaultSource`, `AwsSecretsManagerSource`, etc.) live in
-`confiq.cloud` and are guarded by optional extras. Third-party backends that
+`confiq.sources.cloud` and are guarded by optional extras. Third-party backends that
 confiq does not bundle register via the `confiq.sources` entry-point group.
 
 ---
@@ -428,7 +428,7 @@ the lock — see Section 7.
 
 ```python
 from confiq import load
-from confiq.cloud import VaultSource, AwsSecretsManagerSource
+from confiq.sources.cloud import VaultSource, AwsSecretsManagerSource
 from confiq.sources import EnvSource
 from myapp.schema import Settings
 
@@ -442,7 +442,7 @@ config = load(
 )
 ```
 
-Common cloud sources ship as built-in implementations in `confiq.cloud`, each
+Common cloud sources ship as built-in implementations in `confiq.sources.cloud`, each
 guarded by an optional dependency extra. `pip install confiq[vault]` enables
 `VaultSource`; `pip install confiq[aws]` enables `AwsSecretsManagerSource`.
 Instantiation raises `MissingDependencyError` if the required extra is not
@@ -1248,7 +1248,7 @@ a scoped context-local override — without the monkeypatching connotation.
 **9. Common cloud sources ship as built-in implementations with optional extras,
 following the fsspec model.**
 
-`VaultSource`, `AwsSecretsManagerSource`, and similar live in `confiq.sources`
+`VaultSource`, `AwsSecretsManagerSource`, and similar live in `confiq.sources.cloud`
 and are importable from a single package. This gives users one install command
 (`pip install confiq[aws]`), one import path, and one place where the Source
 protocol contract is maintained. The alternative — separate packages like
