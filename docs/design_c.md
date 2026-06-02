@@ -110,7 +110,7 @@ exist in a process.
 
 ```
 confiq/
-├── __init__.py          # exports: load, load_async, ConfigField, ConfigHandle, SchemalessConfig, MemorySource, hookimpl
+├── __init__.py          # exports: load, load_async, ConfigBind, ConfigField, ConfigHandle, SchemalessConfig, MemorySource, hookimpl
 ├── _load.py             # load(), load_async(), and ConfigHandle[T]
 ├── _resolver.py         # merges sources, walks schema, applies ConfigField metadata
 ├── _snapshot.py         # ResolvedSnapshot: merged field values with per-key source provenance, used between source collection and pydantic validation
@@ -118,34 +118,48 @@ confiq/
 ├── _plugins.py          # plugin manager + built-in hookimpls
 ├── _locks.py            # ReentrancyGuard
 ├── schema/
-│   ├── __init__.py      # exports: ConfigField
+│   ├── __init__.py      # exports: ConfigField, ConfigBind
 │   ├── _field.py        # ConfigField dataclass definition
+│   ├── _bind.py         # ConfigBind dataclass — Annotated marker for CLI parameters
 │   └── _meta.py         # field_meta(): reads Annotated metadata from a model class
 ├── sources/
-│   ├── __init__.py      # exports: Source, AsyncSource, MemorySource, EnvSource,
-│   │                    #          FileSource, CliSource, VaultSource,
-│   │                    #          AwsSecretsManagerSource, GcpSecretManagerSource,
-│   │                    #          AzureKeyVaultSource, ConsulSource
+│   ├── __init__.py      # exports: Source, AsyncSource, MemorySource, EnvSource, FileSource
 │   ├── _protocol.py     # Source and AsyncSource protocols
 │   ├── _memory.py       # MemorySource
 │   ├── _env.py          # EnvSource
-│   ├── _file.py         # FileSource (dispatches via pluggy confiq_load_file hook)
-│   ├── _cli.py          # CliSource (argparse-backed; auto-generates flags)
+│   ├── _file.py         # FileSource — fsspec-backed; delegates parsing to Loader instances
+│   └── cli/
+│       ├── __init__.py  # exports: ClickSource, TyperSource, ArgparseSource
+│       ├── _bind.py     # _set_nested() utility
+│       ├── _click.py    # ClickSource / TyperSource (alias for Click/Typer frameworks)
+│       └── _argparse.py # ArgparseSource
+├── cloud/
+│   ├── __init__.py      # exports: VaultSource, AwsSecretsManagerSource,
+│   │                    #          GcpSecretManagerSource, AzureKeyVaultSource, ConsulSource
+│   ├── _require.py      # shared _require() helper for optional-dependency guard
 │   ├── _aws.py          # AwsSecretsManagerSource (requires [aws] extra)
 │   ├── _gcp.py          # GcpSecretManagerSource (requires [gcp] extra)
 │   ├── _azure.py        # AzureKeyVaultSource (requires [azure] extra)
 │   ├── _vault.py        # VaultSource (requires [vault] extra)
 │   └── _consul.py       # ConsulSource (requires [consul] extra)
+├── loaders/
+│   ├── __init__.py
+│   ├── _protocol.py     # Loader protocol: extensions(), wants_bytes(), parse()
+│   ├── _json.py
+│   ├── _yaml.py         # requires [yaml] extra
+│   ├── _toml.py         # requires [toml] extra; falls back to stdlib tomllib on 3.11+
+│   └── _ini.py
 ├── helpers.py           # from_env_and_file() convenience constructor
 ├── context.py           # override() context manager (ContextVar-based per-task override)
 └── errors.py            # exception hierarchy
 ```
 
 Underscore-prefixed modules are library internals; the public surface is
-`confiq.__init__`, `confiq.schema`, `confiq.sources`, `confiq.context`,
-`confiq.helpers`, and `confiq.errors`. Third-party cloud sources (`VaultSource`,
-`AwsSecretsManagerSource`, etc.) ship as separate packages that register via the
-`confiq.sources` entry-point group.
+`confiq.__init__`, `confiq.schema`, `confiq.sources`, `confiq.sources.cli`,
+`confiq.cloud`, `confiq.context`, `confiq.helpers`, and `confiq.errors`.
+Cloud sources (`VaultSource`, `AwsSecretsManagerSource`, etc.) live in
+`confiq.cloud` and are guarded by optional extras. Third-party backends that
+confiq does not bundle register via the `confiq.sources` entry-point group.
 
 ---
 
@@ -191,7 +205,7 @@ class Settings(BaseModel):
 
 ```python
 from confiq import load
-from confiq.sources import FileSource, EnvSource, CliSource
+from confiq.sources import FileSource, EnvSource
 from myapp.schema import Settings
 
 config: Settings = load(
@@ -199,7 +213,6 @@ config: Settings = load(
     sources=[
         FileSource("config.yaml"),          # lowest precedence
         EnvSource(prefix="MYAPP_"),         # MYAPP_DATABASE__HOST → database.host
-        CliSource(),                        # highest precedence
     ],
 )
 
@@ -209,6 +222,9 @@ print(config.debug)                       # bool
 
 `load()` returns a fully-validated, frozen `Settings` instance. No string keys,
 no `Any`, no runtime surprises after the call returns.
+
+CLI integration is handled separately via `ClickSource`, `TyperSource`, or
+`ArgparseSource` in `confiq.sources.cli` — see §4.4.
 
 ### 4.3 With ConfigField metadata
 
@@ -222,8 +238,8 @@ from confiq.schema import ConfigField
 class Database(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    host: Annotated[str, ConfigField(env="DB_HOST", cli="--db-host")] = "localhost"
-    port: Annotated[int, ConfigField(env="DB_PORT", cli="--db-port")] = 5432
+    host: Annotated[str, ConfigField(env="DB_HOST")] = "localhost"
+    port: Annotated[int, ConfigField(env="DB_PORT")] = 5432
     password: Annotated[
         str,
         ConfigField(env="DB_PASSWORD", secret=True, sources=("env",)),
@@ -232,7 +248,7 @@ class Database(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    debug: Annotated[bool, ConfigField(cli="--debug")] = False
+    debug: Annotated[bool, ConfigField(env="DEBUG")] = False
     log_level: Annotated[str, ConfigField(env="LOG_LEVEL")] = "INFO"
     database: Database
 ```
@@ -246,7 +262,73 @@ type system for purposes of field type resolution.
 from a file or CLI source even if the value is present — useful for secrets that
 must never land in a config file.
 
-### 4.4 The singleton pattern (user-owned)
+### 4.4 CLI framework binding
+
+`ConfigBind("dotted.path")` is an `Annotated` marker placed on a CLI function's
+parameters — not on schema fields. Framework-specific sources collect only
+parameters that carry a `ConfigBind` marker *and* were explicitly set on the
+command line.
+
+```python
+# myapp/cli.py
+import typer
+from typing import Annotated
+from confiq import ConfigBind, load
+from confiq.sources import FileSource, EnvSource
+from confiq.sources.cli import TyperSource
+from myapp.schema import Settings
+
+app = typer.Typer()
+
+@app.command()
+def main(
+    ctx: typer.Context,
+    db_host: Annotated[str, typer.Option(), ConfigBind("database.host")] = "localhost",
+    debug: Annotated[bool, typer.Option(), ConfigBind("debug")] = False,
+) -> None:
+    config: Settings = load(
+        Settings,
+        sources=[
+            FileSource("config.yaml"),
+            EnvSource(prefix="MYAPP_"),
+            TyperSource(ctx),      # only params the user explicitly typed contribute
+        ],
+    )
+```
+
+`TyperSource(ctx)` — which is an alias for `ClickSource(ctx)` since Typer is built on
+Click — uses `ctx.get_parameter_source()` to skip parameters that have
+`ParameterSource.DEFAULT` or `ParameterSource.DEFAULT_MAP`. A parameter the user did not
+type on the command line does not enter the config merge chain, so file and env values
+are not silently overridden by framework defaults.
+
+The argparse equivalent uses `ArgparseSource`, which compares each parsed value against
+`parser.get_default()` to make the same determination:
+
+```python
+import argparse
+from confiq.sources.cli import ArgparseSource
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--db-host", dest="db_host")
+# Annotate the dest name with ConfigBind at fetch time by passing a bindings dict:
+args = parser.parse_args()
+
+config = load(
+    Settings,
+    sources=[
+        FileSource("config.yaml"),
+        EnvSource(prefix="MYAPP_"),
+        ArgparseSource(parser, args),
+    ],
+)
+```
+
+`ConfigBind` is imported from `confiq` or `confiq.schema`; it is framework-agnostic.
+The same `ConfigBind("database.host")` declaration works whether the CLI is Click,
+Typer, or argparse.
+
+### 4.5 The singleton pattern (user-owned)
 
 ```python
 # myapp/config.py
@@ -273,7 +355,7 @@ import-time module initialization — the same pattern Python uses for loggers,
 registries, and application objects. There is no thread-safety question because
 `config` is assigned once at module import time and is immutable thereafter.
 
-### 4.5 Testing — hermetic, no monkeypatching
+### 4.6 Testing — hermetic, no monkeypatching
 
 ```python
 from confiq import load
@@ -292,7 +374,7 @@ def test_uses_test_database():
 shared state, no cleanup, no `monkeypatch`. Tests can run in any order and in
 parallel.
 
-### 4.6 Per-task override (async-safe)
+### 4.7 Per-task override (async-safe)
 
 ```python
 from confiq.context import override
@@ -312,7 +394,7 @@ across `await` boundaries.
 This is for exceptional per-task divergence — multi-tenant routing, test
 fixtures for async tests — not the primary testing pattern.
 
-### 4.7 Live reload with ConfigHandle
+### 4.8 Live reload with ConfigHandle
 
 ```python
 from confiq import ConfigHandle
@@ -342,11 +424,12 @@ snapshot, a short write-lock for atomic swaps, and a subscriber mechanism.
 publishes via a single `STORE_ATTR`. Subscribers run on a daemon thread outside
 the lock — see Section 7.
 
-### 4.8 Cloud sources
+### 4.9 Cloud sources
 
 ```python
 from confiq import load
-from confiq.sources import VaultSource, AwsSecretsManagerSource, EnvSource
+from confiq.cloud import VaultSource, AwsSecretsManagerSource
+from confiq.sources import EnvSource
 from myapp.schema import Settings
 
 config = load(
@@ -359,7 +442,7 @@ config = load(
 )
 ```
 
-Common cloud sources ship as built-in implementations in `confiq.sources`, each
+Common cloud sources ship as built-in implementations in `confiq.cloud`, each
 guarded by an optional dependency extra. `pip install confiq[vault]` enables
 `VaultSource`; `pip install confiq[aws]` enables `AwsSecretsManagerSource`.
 Instantiation raises `MissingDependencyError` if the required extra is not
@@ -370,7 +453,7 @@ Sources remain lazy — `VaultSource(...)` is cheap; the network call happens at
 custom sources), the `confiq.sources` entry-point group is still available —
 see §9.
 
-### 4.9 Third-party plugin (pluggy hookimpl)
+### 4.10 Third-party plugin (pluggy hookimpl)
 
 ```python
 # confiq_audit/plugin.py
@@ -444,7 +527,6 @@ from typing import Any, Literal
 @dataclass(frozen=True)
 class ConfigField:
     env: str | None = None
-    cli: str | None = None
     file_key: str | None = None
     secret: bool = False
     parser: Callable[[str], Any] | None = None
@@ -456,9 +538,6 @@ class ConfigField:
 
 `env` — explicit environment variable name. When absent, the resolver derives
 it from field path and `EnvSource.prefix` + `EnvSource.delimiter`.
-
-`cli` — explicit CLI flag name. When absent, the resolver derives it from the
-field path.
 
 `file_key` — explicit dotted path within file-backed sources. Allows a schema
 field named `database_host` to map to `database.host` in YAML without renaming.
@@ -493,7 +572,70 @@ receives a value from a source not listed in `sources`. Has no effect when
 supplies a value for this field. Carry the reason in the string
 (`deprecated="Use new_field instead. Removed in v2."`).
 
-### 5.3 The load() function
+### 5.3 ConfigBind
+
+```python
+# confiq/schema/_bind.py
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ConfigBind:
+    path: str
+```
+
+`ConfigBind` is an `Annotated` marker placed on **CLI function parameters**, not on
+config schema fields. It carries the dotted config path that the parameter maps to.
+
+```python
+db_host: Annotated[str, typer.Option(), ConfigBind("database.host")] = "localhost"
+```
+
+Framework-specific sources (`ClickSource`, `TyperSource`, `ArgparseSource`) inspect
+the command function's type hints at `fetch()` time, collect parameters annotated
+with `ConfigBind`, filter to only those explicitly set on the command line, and build
+a nested dict keyed by the `path` values.
+
+`ConfigBind` is framework-agnostic — the same annotation works with any of the three
+adapters. It is exported from both `confiq` and `confiq.schema`.
+
+### 5.4 The Loader protocol
+
+```python
+# confiq/loaders/_protocol.py
+from typing import Any, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class Loader(Protocol):
+    def extensions(self) -> frozenset[str]: ...
+    def wants_bytes(self) -> bool: ...
+    def parse(self, data: bytes | str) -> dict[str, Any]: ...
+```
+
+Loaders are pure format parsers. They never touch the filesystem.
+
+`extensions()` — returns the set of file suffixes this loader handles
+(e.g. `frozenset({".json"})`). `FileSource` uses this to select the right loader
+for a given path.
+
+`wants_bytes()` — returns `True` if `parse()` expects `bytes`, `False` if it
+expects a decoded `str`. Lets `FileSource` read the file in the appropriate mode via
+`fsspec`.
+
+`parse(data)` — parses pre-read content and returns the config dict. Raises
+`SourceParseError` on malformed input.
+
+`FileSource` is responsible for all I/O via `fsspec` (supporting local paths,
+`s3://`, `gs://`, Azure Data Lake, and any other fsspec-registered filesystem). It
+reads the file, detects the suffix, selects the matching `Loader`, calls
+`parse()` with the content, and returns the resulting dict.
+
+Built-in loaders handle `.json` and `.ini` with stdlib only. `.yaml` requires the
+`[yaml]` extra; `.toml` uses stdlib `tomllib` on Python 3.11+ or the `[toml]` extra
+on 3.10.
+
+### 5.5 The load() function
 
 ```python
 # confiq/_load.py
@@ -580,7 +722,7 @@ executor. Both `load()` and `load_async()` share the same resolver and produce
 identical results; the difference is only in how `AsyncSource.fetch()` calls
 are scheduled.
 
-### 5.4 ConfigHandle[T]
+### 5.6 ConfigHandle[T]
 
 ```python
 # confiq/_load.py (continued)
@@ -812,10 +954,6 @@ hookimpl = pluggy.HookimplMarker("confiq")
 
 class ConfiqSpecs:
     @hookspec(firstresult=True)
-    def confiq_load_file(self, path: "Path") -> "dict | None":
-        """Load a file; return its dict, or None to pass to the next handler."""
-
-    @hookspec(firstresult=True)
     def confiq_get_schema_adapter(self, schema: type) -> "SchemaAdapter | None":
         """Return a SchemaAdapter for this schema type, or None if unrecognized."""
 
@@ -838,12 +976,6 @@ class ConfiqSpecs:
     def confiq_on_error(self, error: "ConfiqError") -> None:
         """Called when load() fails. Plugin may log or record metrics; not for recovery."""
 ```
-
-`confiq_load_file` — `firstresult=True`; the first non-None return is used.
-The `path` argument is a `pathlib.Path`; plugins call `path.suffix` themselves
-to dispatch on file type. Built-in loaders handle `.json` (stdlib) and `.ini`
-(stdlib). `.yaml` and `.toml` are registered as plugins by `_plugins.py` when
-the extras are installed.
 
 `confiq_get_schema_adapter` — `firstresult=True`; allows third-party schema
 types (attrs classes, msgspec structs) to be supported without modifying confiq.
@@ -903,7 +1035,7 @@ consul_enterprise = "mycompany_confiq.source:ConsulEnterpriseSource"
 ```
 
 Common cloud providers (AWS, GCP, Azure, Vault, Consul) are built-in and do
-not need entry-point registration — see §4.8 and §10.
+not need entry-point registration — see §4.9 and §10.
 
 **Hookimpls via `confiq` entry-point group** — for stateless transforms (secret
 redaction, audit logging, schema migration hooks). Registered as:
@@ -925,30 +1057,40 @@ If your extension participates in a coordinated event, it's a hookimpl.
 name = "confiq"
 requires-python = ">=3.10"
 dependencies = [
-    "pydantic>=2.5",
+    "fsspec>=2026.4.0",
     "pluggy>=1.5",
+    "pydantic>=2.5",
+    "python-dotenv>=1.2.2",
+    "typer>=0.15.4",
 ]
 
 [project.optional-dependencies]
-yaml    = ["pyyaml>=6.0"]
-toml    = ["tomli>=2.0; python_version<'3.11'"]
-dotenv  = ["python-dotenv>=1.0"]
-watch   = ["watchdog>=4.0"]
-click   = ["click>=8.1"]
-typer   = ["typer>=0.12"]
-aws     = ["boto3>=1.34"]
-gcp     = ["google-cloud-secret-manager>=2.18"]
-azure   = ["azure-identity>=1.15", "azure-keyvault-secrets>=4.7"]
-vault   = ["hvac>=2.0"]
-consul  = ["py-consul>=1.7"]
-all     = ["confiq[yaml,toml,dotenv,watch,click,typer,aws,gcp,azure,vault,consul]"]
-dev     = ["pytest>=8", "pytest-asyncio>=0.23", "mypy>=1.10", "ruff>=0.5"]
+yaml   = ["pyyaml>=6.0"]
+toml   = ["tomli>=2.0; python_version<'3.11'"]
+watch  = ["watchdog>=4.0"]
+click  = ["click>=8.1"]
+aws    = ["boto3>=1.34"]
+gcp    = ["google-cloud-secret-manager>=2.18"]
+azure  = ["azure-identity>=1.15", "azure-keyvault-secrets>=4.7"]
+vault  = ["hvac>=2.0"]
+consul = ["py-consul>=1.7"]
+s3     = ["s3fs>=2026.4.0"]
+gcs    = ["gcsfs>=2026.4.0"]
+adl    = ["adlfs>=2024.7.0"]
+common = ["confiq[yaml,toml,watch]"]
+all    = ["confiq[yaml,toml,watch,click,aws,gcp,azure,vault,consul,s3,gcs,adl]"]
+dev    = ["pytest>=8", "pytest-asyncio>=0.23", "mypy>=1.10", "ruff>=0.5"]
 ```
 
-`pydantic` and `pluggy` are the only mandatory runtime dependencies.
-`pydantic>=2.5` is the minimum version that has stable `model_validate()` with
-`include_extras=True` support in `get_type_hints`. `pluggy>=1.5` for
-`load_setuptools_entrypoints` reliability across Python versions.
+`pydantic`, `pluggy`, `fsspec`, `python-dotenv`, and `typer` are the mandatory
+runtime dependencies. `pydantic>=2.5` is the minimum version that has stable
+`model_validate()` with `include_extras=True` support in `get_type_hints`.
+`pluggy>=1.5` for `load_setuptools_entrypoints` reliability across Python versions.
+`fsspec>=2026.4.0` is used directly by `FileSource` for all file I/O — it ships
+no filesystem backends by default; `[s3]`, `[gcs]`, and `[adl]` install
+`s3fs`, `gcsfs`, and `adlfs` to enable `s3://`, `gs://`, and Azure Data Lake URLs
+respectively. `python-dotenv` and `typer` are mandatory because they are used in
+confiq's core CLI and `.env` support.
 
 TOML on Python 3.10: stdlib `tomllib` arrived in 3.11; on 3.10 the `[toml]`
 extra installs `tomli`. The built-in TOML loader plugin (`_plugins.py`) tries
@@ -1123,3 +1265,42 @@ raises `MissingDependencyError` with an actionable hint rather than a bare
 The `confiq.sources` entry-point group remains available for sources that
 confiq has no reason to bundle: enterprise systems, internal custom backends,
 or providers not yet in the built-in set.
+
+**10. ConfigHandle owns a persistent PluginManager.**
+
+`ConfigHandle.create()` builds the plugin manager once and stores it as `self._pm`.
+All subsequent `reload()` and `reload_async()` calls use internal `_load_with_pm()` /
+`_load_with_pm_async()` helpers that accept a pre-built PM, preserving user-registered
+plugins across the lifetime of the handle.
+
+Previously, `reload()` delegated to the public `load()`, which called
+`_make_plugin_manager()` internally on every invocation. Plugins passed via
+`plugins=[...]` to `ConfigHandle.create()` were registered on the first PM and then
+discarded — the PM constructed for subsequent reloads had no knowledge of them.
+`confiq_on_reload` was also never called; the hookspec was dead code.
+
+After this change: user-registered plugins survive across reload cycles;
+`confiq_on_reload` fires on the same daemon thread as subscriber notifications, before
+the subscriber callbacks. The public `ConfigHandle.create()` signature is unchanged.
+See `docs/decisions/0010-confighandle-persistent-plugin-manager.md`.
+
+**11. CLI-to-config binding via ConfigBind annotation on command parameters.**
+
+`CliSource`, `ConfigField.cli`, and the `cli` entry-point in `pyproject.toml` are
+removed. Replaced by framework-specific adapters in `confiq.sources.cli`:
+`ClickSource` / `TyperSource` for Click/Typer, `ArgparseSource` for argparse.
+
+Binding is declared with `ConfigBind("dotted.path")` as an `Annotated` marker on
+the CLI function's parameters — not on schema fields. Only parameters the user
+explicitly typed on the command line enter the config merge chain. `ClickSource`
+uses `ctx.get_parameter_source()` to skip `DEFAULT` and `DEFAULT_MAP` values;
+`ArgparseSource` compares the parsed value against `parser.get_default()`.
+
+This removes `cli` from `ConfigField`, shrinking the schema surface and eliminating
+the coupling between config schema and CLI framework. It also solves the
+default-precedence problem: CLI framework defaults no longer silently override
+lower-priority sources.
+
+`TyperSource` is a module-level alias for `ClickSource` — Typer is built on Click
+and its `Context` is a Click `Context`. See
+`docs/decisions/0011-configbind-cli-binding-model.md`.
