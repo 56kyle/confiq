@@ -24,37 +24,32 @@ def resolve(
     strict: bool = True,
 ) -> ResolvedSnapshot:
     """Merge fetched source pairs and apply schema-level field checks."""
-    merged, provenance = _merge_with_provenance(fetched)
-    if schema is not None:
-        merged, provenance = _apply_aliases(merged, schema, provenance)
-        merged = _enforce_source_restrictions(merged, schema, provenance)
-        merged = _apply_parsers(merged, schema)
-        _warn_deprecated(merged, schema, provenance)
-        if strict:
-            _warn_unknown_keys(merged, schema)
-    return ResolvedSnapshot(merged=merged, provenance=provenance)
+    snapshot = _merge_with_provenance(fetched)
+    if schema is None:
+        return snapshot
+    snapshot = _apply_aliases(snapshot, schema)
+    merged = _enforce_source_restrictions(snapshot.merged, schema, snapshot.provenance)
+    merged = _apply_parsers(merged, schema)
+    _warn_deprecated(merged, schema)
+    if strict:
+        _warn_unknown_keys(merged, schema)
+    return ResolvedSnapshot(merged=merged, provenance=snapshot.provenance)
 
 
-def _merge_with_provenance(
-    fetched: list[tuple[str, Mapping[str, Any]]],
-) -> tuple[dict[str, Any], dict[str, str]]:
+def _merge_with_provenance(fetched: list[tuple[str, Mapping[str, Any]]]) -> ResolvedSnapshot:
     """Merge all fetched source mappings and build a flat provenance map."""
     merged: dict[str, Any] = {}
     provenance: dict[str, str] = {}
     for source_name, mapping in fetched:
         merged = deep_merge(merged, mapping)
         _record_provenance(mapping, "", provenance, source_name)
-    return merged, provenance
+    return ResolvedSnapshot(merged=merged, provenance=provenance)
 
 
-def _apply_aliases(
-    merged: dict[str, Any],
-    schema: type,
-    provenance: dict[str, str],
-) -> tuple[dict[str, Any], dict[str, str]]:
+def _apply_aliases(snapshot: ResolvedSnapshot, schema: type) -> ResolvedSnapshot:
     """Rename file_key entries in merged and provenance to their Python field names."""
-    new_merged: dict[str, Any] = dict(merged)
-    new_provenance: dict[str, str] = dict(provenance)
+    new_merged: dict[str, Any] = dict(snapshot.merged)
+    new_provenance: dict[str, str] = dict(snapshot.provenance)
     hints: dict[str, Any] = get_type_hints(schema, include_extras=True)
     for field_name, _annotated_type in hints.items():
         field: ConfigField | None = field_meta(schema, field_name)
@@ -64,7 +59,7 @@ def _apply_aliases(
             new_merged[field_name] = new_merged.pop(field.file_key)
         if field.file_key in new_provenance:
             new_provenance[field_name] = new_provenance.pop(field.file_key)
-    return new_merged, new_provenance
+    return ResolvedSnapshot(merged=new_merged, provenance=new_provenance)
 
 
 def _enforce_source_restrictions(
@@ -101,10 +96,7 @@ def _enforce_source_restrictions(
     return new_merged
 
 
-def _apply_parsers(
-    merged: dict[str, Any],
-    schema: type,
-) -> dict[str, Any]:
+def _apply_parsers(merged: dict[str, Any], schema: type) -> dict[str, Any]:
     """Apply each field's parser to its value in merged, if present."""
     new_merged: dict[str, Any] = dict(merged)
     hints: dict[str, Any] = get_type_hints(schema, include_extras=True)
@@ -116,11 +108,7 @@ def _apply_parsers(
     return new_merged
 
 
-def _warn_deprecated(
-    merged: dict[str, Any],
-    schema: type,
-    provenance: dict[str, str],
-) -> None:
+def _warn_deprecated(merged: dict[str, Any], schema: type) -> None:
     """Emit DeprecationWarning for each deprecated field that is present in merged."""
     hints: dict[str, Any] = get_type_hints(schema, include_extras=True)
     for field_name, _annotated_type in hints.items():
