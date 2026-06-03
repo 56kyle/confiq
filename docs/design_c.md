@@ -282,7 +282,6 @@ app = typer.Typer()
 
 @app.command()
 def main(
-    ctx: typer.Context,
     db_host: Annotated[str, typer.Option(), ConfigBind("database.host")] = "localhost",
     debug: Annotated[bool, typer.Option(), ConfigBind("debug")] = False,
 ) -> None:
@@ -291,16 +290,19 @@ def main(
         sources=[
             FileSource("config.yaml"),
             EnvSource(prefix="MYAPP_"),
-            TyperSource(ctx),      # only params the user explicitly typed contribute
+            TyperSource(app),      # only params the user explicitly typed contribute
         ],
     )
 ```
 
-`TyperSource(ctx)` — which is an alias for `ClickSource(ctx)` since Typer is built on
-Click — uses `ctx.get_parameter_source()` to skip parameters that have
-`ParameterSource.DEFAULT` or `ParameterSource.DEFAULT_MAP`. A parameter the user did not
-type on the command line does not enter the config merge chain, so file and env values
-are not silently overridden by framework defaults.
+`TyperSource(app)` — which is an alias for `ClickSource(app)` since Typer is built on
+Click — captures the active Click context at `fetch()` time via
+`click.get_current_context()`, then reads `ConfigBind` annotations from the
+currently-executing command's callback. Parameters with `ParameterSource.DEFAULT` or
+`ParameterSource.DEFAULT_MAP` are skipped: only values the user explicitly typed on the
+command line enter the config merge chain, so file and env values are not silently
+overridden by framework defaults. No `ctx: typer.Context` parameter is needed in the
+command function.
 
 The argparse equivalent uses `ArgparseSource`, which compares each parsed value against
 `parser.get_default()` to make the same determination:
@@ -1293,8 +1295,14 @@ removed. Replaced by framework-specific adapters in `confiq.sources.cli`:
 Binding is declared with `ConfigBind("dotted.path")` as an `Annotated` marker on
 the CLI function's parameters — not on schema fields. Only parameters the user
 explicitly typed on the command line enter the config merge chain. `ClickSource`
-uses `ctx.get_parameter_source()` to skip `DEFAULT` and `DEFAULT_MAP` values;
+captures the active Click context at `fetch()` time via `click.get_current_context()`,
+reads `ConfigBind` annotations from the currently-executing command's callback, and
+uses `ctx.get_parameter_source()` to skip `DEFAULT` and `DEFAULT_MAP` values.
 `ArgparseSource` compares the parsed value against `parser.get_default()`.
+
+The caller passes only the app or command object — `TyperSource(app)` or
+`ClickSource(command)`. No `ctx: typer.Context` parameter is required in the command
+function; the context is obtained from Click's internal stack automatically.
 
 This removes `cli` from `ConfigField`, shrinking the schema surface and eliminating
 the coupling between config schema and CLI framework. It also solves the
