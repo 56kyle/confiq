@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 from typing import Annotated
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -39,11 +40,13 @@ class TestClickSource:
 
         ctx = MagicMock()
         ctx.params = {"host": "pg"}
+        ctx.command.callback = command
         ctx.get_parameter_source.return_value = click.core.ParameterSource.COMMANDLINE
 
         from confiq.sources.cli._click import ClickSource
-        src = ClickSource(ctx, command)
-        result = src.fetch()
+        with patch("click.get_current_context", return_value=ctx):
+            src = ClickSource(MagicMock())
+            result = src.fetch()
         assert result == {"database": {"host": "pg"}}
 
     def test_skips_default_param(self) -> None:
@@ -54,11 +57,13 @@ class TestClickSource:
 
         ctx = MagicMock()
         ctx.params = {"host": "localhost"}
+        ctx.command.callback = command
         ctx.get_parameter_source.return_value = click.core.ParameterSource.DEFAULT
 
         from confiq.sources.cli._click import ClickSource
-        src = ClickSource(ctx, command)
-        result = src.fetch()
+        with patch("click.get_current_context", return_value=ctx):
+            src = ClickSource(MagicMock())
+            result = src.fetch()
         assert result == {}
 
     def test_skips_param_with_no_bind(self) -> None:
@@ -69,11 +74,13 @@ class TestClickSource:
 
         ctx = MagicMock()
         ctx.params = {"host": "pg"}
+        ctx.command.callback = command
         ctx.get_parameter_source.return_value = click.core.ParameterSource.COMMANDLINE
 
         from confiq.sources.cli._click import ClickSource
-        src = ClickSource(ctx, command)
-        result = src.fetch()
+        with patch("click.get_current_context", return_value=ctx):
+            src = ClickSource(MagicMock())
+            result = src.fetch()
         assert result == {}
 
     def test_nested_path_produces_nested_dict(self) -> None:
@@ -84,18 +91,33 @@ class TestClickSource:
 
         ctx = MagicMock()
         ctx.params = {"port": 9090}
+        ctx.command.callback = command
         ctx.get_parameter_source.return_value = click.core.ParameterSource.COMMANDLINE
 
         from confiq.sources.cli._click import ClickSource
-        src = ClickSource(ctx, command)
-        result = src.fetch()
+        with patch("click.get_current_context", return_value=ctx):
+            src = ClickSource(MagicMock())
+            result = src.fetch()
         assert result == {"server": {"port": 9090}}
+
+    def test_no_active_context_returns_empty(self) -> None:
+        pytest.importorskip("click")
+        from confiq.sources.cli._click import ClickSource
+        with patch("click.get_current_context", side_effect=RuntimeError("no context")):
+            assert ClickSource(MagicMock()).fetch() == {}
+
+    def test_null_callback_returns_empty(self) -> None:
+        pytest.importorskip("click")
+        ctx = MagicMock()
+        ctx.command.callback = None
+        from confiq.sources.cli._click import ClickSource
+        with patch("click.get_current_context", return_value=ctx):
+            assert ClickSource(MagicMock()).fetch() == {}
 
     def test_default_name(self) -> None:
         pytest.importorskip("click")
         from confiq.sources.cli._click import ClickSource
-        ctx = MagicMock()
-        src = ClickSource(ctx, lambda: None)
+        src = ClickSource(MagicMock())
         assert src.name == CLI_SOURCE_NAME
 
 
@@ -144,4 +166,3 @@ class TestArgparseSource:
         namespace = parser.parse_args([])
         src = ArgparseSource(namespace, parser, lambda: None)
         assert src.name == CLI_SOURCE_NAME
-

@@ -16,13 +16,12 @@ from confiq.sources.cli._bind import _set_nested
 class ClickSource:
     """Config source that reads explicitly-set Click/Typer CLI parameters.
 
-    Parameters annotated with ConfigBind("dotted.path") in the command function
-    contribute their values to the config when set on the command line (not when
-    using the parameter default).
+    Pass the Click command or group (or Typer app). At fetch time the source
+    captures the active Click context from Click's internal stack and reads
+    ConfigBind annotations from the currently-executing command's callback.
     """
 
-    def __init__(self, ctx: Any, command: Callable[..., Any]) -> None:
-        # Deferred so import succeeds without click installed; confiq[click] extra is required
+    def __init__(self, app_or_command: Any) -> None:
         try:
             import click  # noqa: F401
         except ImportError:
@@ -31,13 +30,22 @@ class ClickSource:
                 "Install it with: pip install confiq[click]"
             ) from None
         self.name: str = CLI_SOURCE_NAME
-        self._ctx: Any = ctx
-        self._command: Callable[..., Any] = command
+        self._app_or_command: Any = app_or_command
 
     def fetch(self) -> dict[str, Any]:
+        import click
         from click.core import ParameterSource
 
-        hints: dict[str, Any] = get_type_hints(self._command, include_extras=True)
+        try:
+            ctx: Any = click.get_current_context()
+        except RuntimeError:
+            return {}
+
+        callback: Callable[..., Any] | None = ctx.command.callback
+        if callback is None:
+            return {}
+
+        hints: dict[str, Any] = get_type_hints(callback, include_extras=True)
         result: dict[str, Any] = {}
 
         for param_name, annotated_type in hints.items():
@@ -51,12 +59,12 @@ class ClickSource:
             )
             if bind is None:
                 continue
-            if param_name not in self._ctx.params:
+            if param_name not in ctx.params:
                 continue
-            source = self._ctx.get_parameter_source(param_name)
+            source = ctx.get_parameter_source(param_name)
             if source in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP):
                 continue
-            _set_nested(result, bind.path, self._ctx.params[param_name])
+            _set_nested(result, bind.path, ctx.params[param_name])
 
         return result
 
