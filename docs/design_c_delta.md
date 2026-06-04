@@ -1,171 +1,177 @@
-# Plan (corrected): `design_c.md` → agreed-design delta document
+# Plan: Document differences between the new architecture docs and `design_c.md`
 
-## Purpose & framing
+## Context
 
-`design_c.md` is the prior specification (and the shape any existing code follows).
-`confiq_architecture.md` and the per-axis decision reference are the **agreed design** and
-are authoritative. The delta document therefore is not a neutral "two views" inventory —
-it is an **actionable reconciliation**: for each divergence it should state which side wins
-(the agreed design, unless noted) and what `design_c`/the code must change to.
+The agreed design now lives in two documents:
+- `docs/confiq_architecture.md` — narrative architecture doc
+- `docs/confiq_design_axes.md` — per-axis decision record (confirm exact filename in the
+  repo; the prior plan referenced `config_design_axes.md`)
+
+These supersede `design_c.md`. The task is a delta document that surfaces where `design_c`
+diverges from the agreed design so `design_c` (and any code built from it) can be brought
+into line or retired. **Direction is not neutral:** the new docs are authoritative; each
+entry should state what `design_c`/the code must change to.
+
+**One caveat that shapes the whole doc.** The architecture doc's code sketches were
+delivered as *illustrative, not prescriptive* — they encode the agreed contracts but the
+exact signatures are placeholders. So a raw signature-level diff will mix genuine design
+decisions with incidental sketch choices. The delta doc must separate the two, or it will
+record sketch artifacts as deliberate changes.
 
 ## Files involved
 
-- `docs/design_c.md` — prior spec, to be updated (or retired) to match the agreed design.
-- `docs/confiq_architecture.md` — agreed narrative design (authoritative).
-- `docs/confiq_design_axes.md` — agreed per-axis decisions (authoritative). *Confirm the
-  exact filename in the repo: the original plan referred to `config_design_axes.md`; the
-  file produced was `confiq_design_axes.md`.*
-- New file: `docs/design_c_delta.md`.
+- `docs/design_c.md` — the superseded spec
+- `docs/confiq_architecture.md` — authoritative narrative
+- `docs/confiq_design_axes.md` — authoritative per-axis record (verify filename)
+- New file to create: `docs/design_c_delta.md`
 
-## Framing correction that drives the whole structure
+## Guiding principle
 
-The architecture document's code sketches were delivered as **illustrative, not
-prescriptive** — they encode the agreed *contracts*, but exact signatures (argument order,
-property-vs-method, whether a given parameter appears) are placeholders. Diffing those
-sketches line-by-line against `design_c` risks recording incidental presentation as if it
-were a deliberate decision. The delta doc must therefore separate:
-
-- **Part 1 — substantive design changes** (real decisions; the agreed design wins; update
-  `design_c`/code).
-- **Part 2 — signature/sketch differences to confirm** (verify against `design_c`'s exact
-  text and confirm intent before recording as decisions).
+For each difference, distinguish the **decided semantics** (authoritative, must be
+reconciled) from **illustrative naming/signatures** (may be sketch-level; confirm before
+recording as an intentional change). Group the doc accordingly.
 
 ---
 
-## Part 1 — Substantive design changes (agreed design authoritative)
+## Group A — Substantive design changes (authoritative; reconcile `design_c`/code)
 
-Each entry in the delta doc gets: *design_c says* / *agreed design says* / *resolution* /
-*note*.
+### A1. Async sources in sync `load()` — direct contradiction
+- `design_c` §5.5: `load()` accepts sync *and* async sources, driving async ones via an
+  `asyncio.gather()` inside a `ThreadPoolExecutor` + `asyncio.run()` bridge.
+- New docs (architecture §7; Axis 8): `load()` accepts only sync sources and raises a
+  clear error on an `AsyncSource`. The thread-executor bridge is explicitly rejected.
 
-**1. CLI binding & generation (was entirely missing from the original plan — the largest
-divergence).**
-- *design_c:* explicit `ConfigBind` on every CLI parameter, with the field default
-  **restated** on the param (`= "localhost"`); `ArgparseSource` detects explicit-set by
-  comparing against `parser.get_default()`.
-- *Agreed design:* consumer-by-default (confiq reads only explicitly-set params and folds
-  them in as highest-precedence); **defaults declared only in the schema** (CLI options omit
-  them); **convention auto-binding** so `ConfigBind` is needed only on divergence; an
-  **opt-in generator** (`options_from(schema)`); argparse explicit-set via
-  `default=argparse.SUPPRESS` with a `bind={...}` dict; documented consume/generate
-  framework asymmetry (Click easy both sides, Typer awkward to generate, argparse awkward to
-  consume).
-- This should be the longest section; it has five independent sub-differences.
+### A2. Mandatory vs optional dependencies
+- `design_c` §10: `python-dotenv` and `typer` are mandatory core deps ("used in confiq's
+  core CLI and .env support").
+- New docs (architecture §11; Axis 11): the core depends on nothing optional — CLI
+  frameworks, dotenv parsing, and cloud SDKs all sit behind extras. The architecture doc
+  names the `design_c` arrangement as the inconsistency being corrected.
 
-**2. Async sources in sync `load()`.**
-- *design_c (§5.5):* `load()` accepts sync and async sources and drives async via
-  `ThreadPoolExecutor` + `asyncio.run()`.
-- *Agreed design (arch §7, Axis 8):* `load()` accepts sync sources only and raises a clear
-  error on an `AsyncSource`; `load_async()` drives async sources. The bridge is explicitly
-  rejected.
+### A3. `on_reload` subscriber model
+Decided parts (authoritative):
+- Subscribers may be **sync and async** (`design_c` §5.6 / Decision 3: sync-only).
+- Notification is via **blinker signals** with weak-referenced subscribers (`design_c`:
+  plain callback list on a daemon thread).
 
-**3. Mandatory vs optional dependencies.**
-- *design_c (§10):* `python-dotenv` and `typer` are mandatory core dependencies.
-- *Agreed design (arch §11, Axis 11):* the core depends on nothing optional; CLI frameworks,
-  dotenv, and cloud SDKs all sit behind extras. (design_c's stance is named as the earlier
-  inconsistency.)
+Sketch-level parts (confirm — see Group B note): subscriber **arity** (`design_c`
+`Callable[[T, T], None]` taking `(old, new)` → new docs `Callable[[T], Any]` taking the
+new value only) and the **return of `on_reload`** (`design_c` returns `fn` for decorator
+use → new docs return a disconnect callable). These follow from the blinker choice but
+were not separately deliberated; confirm the intended arity and return before recording.
 
-**4. Return type & the immutability guarantee (split out from the old "multi-schema" item;
-it is a safety-semantics change, not just a validation-call swap).**
-- *design_c:* returns a frozen pydantic model, so the result is **unconditionally
-  immutable**.
-- *Agreed design (arch §8, Axis 2/9):* `load()` returns an instance of the **declared type**
-  (Pole A); `isinstance` holds. Immutability is therefore **conditional on the schema being
-  frozen** — a non-frozen dataclass yields mutable config, a `TypedDict` yields a mutable
-  dict — and guarantees form a documented gradient (mutability and secret-masked `repr`
-  strongest on frozen pydantic, degrading toward `TypedDict`/schemaless).
+### A4. `SchemaAdapter` semantics
+- `design_c` §9: `field_hints() -> Mapping[str, object]` (name → annotated *type*);
+  `validate(data) -> object`.
+- New docs (architecture §5.3): metadata accessor returns **Annotated extras only**
+  (`Mapping[str, list[Any]]`), and `validate(...) -> T` returns the declared type.
+- The method *name* (`field_hints` → `field_metadata`) is illustrative; the **semantic
+  shift** (extras-only, typed return) is the decided part.
 
-**5. Multi-schema support & validation engine.**
-- *design_c:* pydantic `BaseModel` is the primary schema; resolver step 4 calls
-  `schema.model_validate(merged)` (model-specific).
-- *Agreed design (arch §5.3, Axis 2):* first-class support for pydantic `BaseModel`, pydantic
-  dataclass, stdlib dataclass, `TypedDict`, and schemaless; **all** validated via pydantic
-  `TypeAdapter` (not `model_validate`); the `SchemaAdapter` is the spine. The
-  `model_validate` resolver step must change.
+### A5. Metadata reading strategy
+- `design_c` §6/§2.6: `get_type_hints(schema, include_extras=True)` for *all* schema
+  types, including pydantic.
+- New docs (architecture §5.3; Axis 4): per-adapter — pydantic reads `FieldInfo.metadata`
+  (no second introspection path); `get_type_hints` is used only for stdlib dataclasses and
+  `TypedDict`s, where it is unavoidable.
 
-**6. Metadata reading strategy.**
-- *design_c (§2.6, §6):* `typing.get_type_hints(schema, include_extras=True)` for all schema
-  types, **including pydantic**.
-- *Agreed design (arch §5.3, Axis 4):* per-adapter — pydantic reads `ConfigField` from
-  `FieldInfo.metadata` (no second introspection path); `get_type_hints` is used only for
-  stdlib dataclasses and `TypedDict`s, where it is unavoidable.
+### A6. Multi-schema support scope
+- `design_c`: pydantic `BaseModel` is the primary schema; resolver step 4 calls
+  `schema.model_validate(merged)` (pydantic-model-specific).
+- New docs (architecture §5.3; Axis 2): first-class support for `BaseModel`, pydantic
+  dataclass, stdlib dataclass, `TypedDict`, and schemaless, all validated through pydantic
+  `TypeAdapter`. The `model_validate` resolver step must change.
 
-**7. `SchemaAdapter` protocol shape** (substantive because it is the contract enabling #4–#6;
-exact method name is still a placeholder — see Part 2).
-- *design_c (§9):* `field_hints() -> Mapping[str, object]` (name → annotated type);
-  `validate(data: dict[str, Any]) -> object`.
-- *Agreed design (arch §5.3):* `field_metadata() -> Mapping[str, list[Any]]` (Annotated
-  extras only); `validate(data: Mapping[str, Any]) -> T`.
+### A7. `load()` return-type contract and the immutability gradient (NEW — was missing)
+- `design_c`: only frozen pydantic models, so the result is **unconditionally immutable**.
+- New docs (architecture §8; Axis 2, Axis 9): `load()` returns an instance of the
+  **declared type** (Pole A). Consequence: **immutability is now conditional on a frozen
+  schema** — a non-frozen dataclass yields mutable config, a `TypedDict` yields a mutable
+  dict — and secret-masking / rich serialization degrade by schema type (the documented
+  gradient). This weakens the thread-safety guarantee from "always" to "opt-in" and is a
+  semantic change, not just a validation-call swap. Give it its own entry.
 
-**8. `Source` protocol gains `mode` and `profile`.**
-- *design_c (§5.1):* `name` + `fetch()` only.
-- *Agreed design (arch §5.1):* adds `mode: Literal["override","fill"] = "override"` and
-  `profile: str | None = None` as first-class protocol attributes.
+### A8. Typed-open middle ground (NEW — was missing)
+- `design_c`: schemaless is the only relaxation; no typed-core-plus-`extra` mode.
+- New docs (Axis 9): a typed core may allow extra keys via `ConfigDict(extra="allow")`
+  (pydantic) or an explicit `extra: dict[str, Any]` field (dataclass/`TypedDict`). This is
+  a new feature added this round.
 
-**9. Merge semantics: fill mode + provenance in errors** (consequence of #8; the original
-plan caught the attribute but not the behavior).
-- *design_c:* deep-merge, list-replace, override-only; provenance tracked internally.
-- *Agreed design (arch §5.4, Axis 6):* deep-merge, list-replace, **plus a per-source fill
-  mode** (contribute only keys not already set); provenance **surfaced in error messages**.
+### A9. `Source` protocol gains `mode` and `profile`
+- `design_c` §5.1: `name` + `fetch()` only.
+- New docs (architecture §5.1): `mode: Literal["override", "fill"] = "override"` and
+  `profile: str | None = None` are first-class protocol attributes.
 
-**10. Profiles.**
-- *design_c:* none — no `profile` parameter, no source tagging.
-- *Agreed design (arch §5.5):* sources may carry a `profile` tag; `load(..., profile=...)`
-  filters which tagged sources participate; thin, opt-in, explicit, nothing auto-discovered.
+### A10. Merge semantics gain fill mode (NEW — was only half-captured)
+- `design_c`: deep-merge, list-replace, override-only.
+- New docs (architecture §5.4; Axis 6): same deep-merge/list-replace, but the merge step
+  now honors `mode="fill"` (contribute only keys not already set) in addition to override.
+  This is the *behavioral* consequence of A9 and belongs in the merge entry, not only as a
+  protocol-attribute note.
 
-**11. Typed-open middle ground (Axis 9 — a feature added this round; not in design_c).**
-- *design_c:* schemaless mode is the only relaxation.
-- *Agreed design (arch §8, Axis 9):* typed core + permissive `extra` — `ConfigDict(extra=
-  "allow")` on pydantic (extras in `__pydantic_extra__`), or an explicit `extra: dict[str,
-  Any]` field on dataclasses/`TypedDict`s — in addition to schemaless.
+### A11. Provenance surfaced in errors (NEW — minor)
+- `design_c`: provenance tracked internally.
+- New docs (architecture §5.4; Axis 6): provenance is surfaced in error messages so a
+  validation failure names the source of the offending value.
 
-**12. `on_reload` subscriber model** (substantive parts: async support + blinker; the exact
-arity and return value are contract details — see Part 2).
-- *design_c (§5.6):* sync-only subscribers (async deferred); plain callback list; daemon
-  thread after swap.
-- *Agreed design (arch §6–7, Axis 7):* sync **and** async subscribers (async driven on the
-  loop by `reload_async()`, or via an explicitly provided loop under sync `reload()`);
-  modeled on **blinker** signals with weak-referenced subscribers; `ConfigHandle.create()`
-  gains a `loop` parameter for that scheduling.
+### A12. Profiles — absent vs present
+- `design_c`: no profiles; no `profile` parameter; no source tagging.
+- New docs (architecture §5.5; Axis cross-cutting): sources carry a `profile` tag,
+  `load()` takes `profile: str | None = None`, and non-matching tagged sources are
+  excluded. Thin, opt-in, explicit.
+
+### A13. `ConfigHandle.create()` — `loop` parameter added
+- New docs add `loop: AbstractEventLoop | None = None` to schedule async subscribers under
+  sync `reload()`. This is the **decided** part of the `create()` changes (the rest is
+  Group B).
 
 ---
 
-## Part 2 — Signature/sketch differences to confirm, not record as decisions
+## Group B — Incidental signature/sketch differences (confirm intent before recording)
 
-These come from illustrative sketches. The delta doc should list them as **pending
-confirmation**, verified against `design_c`'s exact text, before any are written up as
-intentional changes.
+These are real textual differences but likely reflect illustrative sketches rather than
+deliberate decisions. Each should be confirmed; do not present as intentional changes
+without checking.
 
-1. **`plugins` removed from `ConfigHandle.create()`** — most likely a sketch omission, **not**
-   a decision. We never discussed dropping per-handle plugin registration. Confirm intent
-   before recording.
-2. **`ConfigHandle.current` property vs method** — cosmetic; confirm the intended form.
-3. **`create()` `sources` positional vs keyword-only** — cosmetic; confirm.
-4. **`on_reload` exact arity (`(new)` vs `(old, new)`) and return value (disconnect callable
-   vs the function unchanged)** — verify `design_c`'s exact signature verbatim; lock the
-   intended contract. (The decision to support async + blinker is real; the precise
-   signature is a detail to settle.)
-5. **Exact `SchemaAdapter` method name (`field_metadata`)** — the conceptual change is decided
-   (#7); the literal name is a placeholder to confirm.
+### B1. `ConfigHandle.current` — property vs method
+- `design_c` §5.6/§4.8: `current()` method (`handle.current()`).
+- New docs (architecture §6): `current` property (`handle.current`).
+- Real API difference but not separately deliberated. Recommend confirming (property reads
+  cleaner for an immutable snapshot), then recording the chosen form.
+
+### B2. `create()` — `sources` keyword-only vs positional
+- `design_c`: keyword-only. New docs: positional. Cosmetic; confirm and standardize.
+
+### B3. `create()` — `plugins` parameter removed (FLAG — likely unintended)
+- `design_c` §5.6: `create(..., plugins: list[object] | None = None)`.
+- New docs: no `plugins` parameter.
+- **Per-handle plugin registration was never discussed for removal.** This is most likely
+  an omission in the illustrative sketch, not a decision. Do **not** record it as an
+  intentional change — flag it as an open question: keep `plugins`, or move plugin
+  registration entirely to the pluggy/entry-point surface (Axis 11)?
 
 ---
 
-## Proposed delta document structure
+## Proposed output: `docs/design_c_delta.md`
 
-1. One opening paragraph: what the doc is, that the agreed design is authoritative, and that
-   it is an actionable reconciliation (what `design_c`/code must change to).
-2. **Part 1 — substantive changes**, one entry each, in the *design_c / agreed design /
-   resolution / note* form above.
-3. **Part 2 — pending confirmation**, listed plainly as open items, not decisions.
-4. A summary table: column for the item, one-line `design_c`, one-line agreed design, and a
-   status column (`change design_c` vs `confirm intent`).
+1. **Opening**: what the doc is, that the new docs are authoritative, and that entries are
+   split into decided changes vs items to confirm.
+2. **Group A — Reconcile**: one subsection per A-item, each as a
+   `design_c says` / `new docs say (authoritative)` / `action` triple, where *action* is
+   the concrete change to `design_c`/code.
+3. **Group B — Confirm**: the three sketch-level items, each phrased as a question to
+   resolve before changing anything.
+4. **Summary table**: columns `Area | design_c | New docs (authoritative) | Kind
+   (decision / confirm)`.
 
 ## Verification
 
-- Quote `design_c`'s signatures **verbatim** rather than paraphrasing — especially the
-  `on_reload` arity/return and `create()` signature — so no contract detail is
-  mischaracterized.
-- Cross-check every "agreed design says" against the cited section in
-  `confiq_architecture.md` / `confiq_design_axes.md`.
-- Confirm the axes filename in the repo.
-- Walk Part 2 with the design owner before finalizing; move any confirmed item into Part 1,
-  drop any that turn out to be sketch noise.
+- Read the produced delta doc against all three source files; confirm no difference is
+  mischaracterized or omitted.
+- **Quote `design_c` signatures verbatim** (especially `on_reload` arity, `current`, and
+  `create()`), rather than paraphrasing — the arity and signature claims must be pinned to
+  exact text.
+- For every Group B item, confirm whether the new-doc form was a decision or a sketch
+  artifact before it lands in Group A.
+- Confirm the axes-doc filename referenced throughout.
+-
