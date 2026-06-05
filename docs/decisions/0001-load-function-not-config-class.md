@@ -2,14 +2,14 @@
 status: accepted
 date: 2026-05-29
 ---
-# Use `load()` Function Returning a Frozen BaseModel Instead of a Mutable Config Class
+# Use `load()` Function Returning the Caller's Declared Schema Type
 
 ## Context and Problem Statement
 
 `confiq` needs a primary entry point through which callers acquire configuration
 values. The two realistic shapes for that entry point are: (a) a mutable object
 whose state accumulates via builder calls, or (b) a pure function that accepts
-everything it needs upfront and returns a complete, immutable value.
+everything it needs upfront and returns a complete, typed value.
 
 The predecessor design (Design A) used shape (a): a `Config` class with
 `.add_dict()`, `.add_env()`, `.add_file()`, and a `.get("dotted.key")` method.
@@ -23,6 +23,8 @@ Callers built the object incrementally before reading from it.
   state.
 - The read path must be fully typed — `config.database.host` should be `str`,
   not `Any`.
+- Callers who already have a stdlib dataclass or `TypedDict` should not be
+  forced to rewrite it as a pydantic `BaseModel`.
 - Familiarity with the builder shape must not be a deciding factor if the
   tradeoffs favour the functional shape.
 
@@ -31,16 +33,46 @@ Callers built the object incrementally before reading from it.
 - **Option A: Mutable `Config` builder class** — builder methods accumulate
   sources; `.get(key)` reads values; the object may or may not be frozen after a
   `.freeze()` call.
-- **Option B: `load()` function returning a frozen pydantic `BaseModel`** — all
-  sources declared at call time; the return value is a typed, immutable model
-  instance.
+- **Option B: `load()` function returning the caller's declared type `T`** — all
+  sources declared at call time; the return value is an instance of whatever
+  schema the caller declared (pydantic `BaseModel`, dataclass, `TypedDict`, or
+  a schemaless read-only `Mapping`).
 
 ## Decision Outcome
 
-Chosen option: "Option B: `load()` function returning a frozen pydantic
-`BaseModel`", because it eliminates the entire class of errors that arise from
-reading config before all sources are applied, makes `Any` on the read path
-structurally impossible, and allows test isolation without shared state.
+Chosen option: "Option B: `load()` function returning the caller's declared type
+`T`", because it eliminates the entire class of errors that arise from reading
+config before all sources are applied, makes `Any` on the read path structurally
+impossible, and allows test isolation without shared state.
+
+The return type is `T` — exactly the schema type the caller declared. `confiq`
+never wraps the result in a library type; `isinstance(config, YourType)` holds.
+The type annotation `load(schema: type[T], ...) -> T` is honest.
+
+### The guarantee gradient
+
+Because `load()` returns the caller's own type, the strength of the guarantees
+`confiq` provides varies with the schema choice. This is intentional and stated
+loudly, not buried:
+
+| Schema type | Access | Mutability | Secret-masked `repr` | Rich serialization |
+|---|---|---|---|---|
+| `BaseModel(frozen=True)` | attribute | immutable | full | full (`model_dump`) |
+| `BaseModel` (default) | attribute | mutable | full | full |
+| `@dataclass(frozen=True)` | attribute | immutable | invasive | via `TypeAdapter` |
+| `@dataclass` | attribute | mutable | invasive | via `TypeAdapter` |
+| `TypedDict` | subscript | mutable dict | none | already a dict |
+| schemaless (`None`) | subscript | read-only `Mapping` | none | none |
+
+Frozen pydantic is the "all guarantees on" choice; each step away trades one
+named guarantee for one named convenience. The lock-free-read guarantee for
+`ConfigHandle` applies only to frozen schemas (see ADR 0010).
+
+### Validation engine
+
+All schema types validate and coerce through pydantic's `TypeAdapter`
+(`TypeAdapter(schema).validate_python(merged)`). One engine, one set of
+validation semantics — no per-type bespoke validator.
 
 ### Consequences
 
@@ -48,7 +80,7 @@ structurally impossible, and allows test isolation without shared state.
   it can be passed to functions, stored in dataclasses, compared structurally,
   and serialized. No special framework support is needed for any of these
   operations.
-- Attribute access on the returned model cannot raise a `ConfiqError`. All
+- Attribute access on the returned value cannot raise a `ConfiqError`. All
   errors are concentrated at the `load()` call boundary. Once `load()` returns,
   the value is safe to read unconditionally.
 - Testing requires no monkeypatching. A fresh `load(Settings, sources=[MemorySource({...})])`
@@ -85,19 +117,19 @@ structurally impossible, and allows test isolation without shared state.
   not a language invariant. `.freeze()` can enforce it at runtime but not at
   type-check time.
 
-### Option B: `load()` Function Returning a Frozen `BaseModel`
+### Option B: `load()` Function Returning `T`
 
 - Good, because the boundary between acquisition and use is the function call
   itself — a language-level invariant, not a convention.
 - Good, because the return type is fully known to the type checker. Attribute
   access is typed; there is no `Any` on the read path.
-- Good, because the returned value is immutable by pydantic's `frozen=True`
-  enforcement. No accidental mutation, no `.freeze()` ceremony.
+- Good, because callers bring their own schema type — existing dataclasses and
+  `TypedDict`s work without rewriting. Frozen pydantic is the strongest choice
+  but not the only one.
 - Good, because test isolation is free: each test constructs its own value from
   a `MemorySource`. No shared state exists to reset.
 - Good, because the schema file does not need to import confiq. A plain pydantic
-  `BaseModel` works without modification; confiq reads field metadata at load
-  time via `typing.get_type_hints(schema, include_extras=True)`.
+  `BaseModel` works without modification.
 - Neutral, because conditional source inclusion requires an explicit `if` at the
   list construction site rather than a conditional method call. The behaviour is
   identical; the syntax is slightly more verbose.

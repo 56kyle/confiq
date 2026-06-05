@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 0012
 date: 2026-05-29
 ---
 # `ConfigHandle.on_reload` Accepts Sync Callables Only in v1

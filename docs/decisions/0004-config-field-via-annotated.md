@@ -6,19 +6,34 @@ date: 2026-05-29
 
 ## Context and Problem Statement
 
-`confiq` fields need a mechanism to carry per-field behavior metadata:
-explicit environment variable names, CLI flags, source restrictions, secret
-marking, and custom parsers. The mechanism must be readable by confiq at load
-time without requiring a confiq-specific base class in the schema file. It must
-also be compatible with schema types other than pydantic — attrs classes and
-msgspec structs are plausible via third-party `SchemaAdapter` plugins.
+`confiq` fields need a mechanism to carry per-field behavior metadata: an
+explicit environment variable name, secret marking, and a custom string parser.
+The mechanism must be readable by confiq at load time without requiring a
+confiq-specific base class in the schema file. It must also be compatible with
+schema types other than pydantic — stdlib dataclasses and `TypedDict`s are
+first-class schema kinds; attrs and msgspec structs are plausible via
+third-party `SchemaAdapter` plugins.
+
+`ConfigField` is intentionally narrow. CLI binding is a separate concern handled
+by `ConfigBind` on the CLI function parameter (see ADR 0011), not on the schema
+field. Source restriction per field is not a design goal.
+
+The three fields `ConfigField` carries are:
+
+```python
+@dataclass(frozen=True)
+class ConfigField:
+    env: str | None = None                     # explicit env var name (overrides the convention)
+    secret: bool = False                       # mask in repr and in error output
+    parser: Callable[[str], Any] | None = None # pre-validation coercion from a raw string
+```
 
 ## Decision Drivers
 
 - The schema file should have no mandatory confiq import; a plain `pydantic.BaseModel`
   must work without modification for callers who need no per-field metadata.
-- Per-field metadata must survive `typing.get_type_hints(..., include_extras=True)`
-  so the resolver can read it at load time.
+- Per-field metadata must survive the metadata-extraction path for each schema
+  adapter type (see below).
 - `ConfigField` must be orthogonal to pydantic's `FieldInfo` — the two have
   separate concerns and must not be coupled.
 - The pattern must compose with type checkers: `host: Annotated[str, ConfigField(...)]`
@@ -37,28 +52,36 @@ msgspec structs are plausible via third-party `SchemaAdapter` plugins.
 ## Decision Outcome
 
 Chosen option: "Option A: `Annotated[T, ConfigField(...)]`", because it keeps
-`ConfigField` orthogonal to pydantic, works with any schema type via
-`typing.get_type_hints`, and follows the established stdlib pattern used by
-Typer, FastAPI, and `dataclasses-json` for exactly this purpose.
+`ConfigField` orthogonal to pydantic, works with any schema type, and follows
+the established stdlib pattern used by Typer, FastAPI, and `dataclasses-json`
+for exactly this purpose.
+
+### Per-adapter metadata-reading path
+
+Different schema kinds read `Annotated` metadata through different paths, and
+this asymmetry is accepted rather than hidden:
+
+- **pydantic `BaseModel` and pydantic dataclasses** — the pydantic adapter reads
+  `ConfigField` from `FieldInfo.metadata`, the same view pydantic's own
+  validator uses. This avoids calling `get_type_hints` independently and
+  sidesteps PEP 563 / forward-reference fragility for pydantic schemas.
+- **stdlib dataclasses and `TypedDict`s** — these adapters read `Annotated`
+  metadata via `get_type_hints(include_extras=True)`, which is the correct path
+  for non-pydantic types. The forward-reference fragility this introduces is
+  accepted because it is confined to these adapter implementations.
 
 ### Consequences
 
-- The schema file imports only `confiq.schema.ConfigField` for fields that
-  carry confiq metadata. Fields with no per-field metadata require no confiq
-  import at all — the schema file remains a plain pydantic `BaseModel`.
+- The schema file imports only `confiq.ConfigField` for fields that carry confiq
+  metadata. Fields with no per-field metadata require no confiq import at all.
 - `ConfigField` is a `@dataclass(frozen=True)` with no `**kwargs: Any` escape
-  hatch. It carries only the fields that confiq defines; there is no mechanism
-  to smuggle untyped data through it.
-- Third-party `SchemaAdapter` implementations for attrs or msgspec can read the
-  same `Annotated` metadata via `typing.get_type_hints(..., include_extras=True)`,
-  giving them access to confiq's per-field behavior without any confiq-specific
-  base class or metaclass.
+  hatch. It carries exactly the three fields listed above.
+- Third-party `SchemaAdapter` implementations can read the same `Annotated`
+  metadata via `typing.get_type_hints(..., include_extras=True)`, giving them
+  access to confiq's per-field behavior without any confiq-specific base class.
 - Type checkers see `host: str`, not `host: Annotated[str, ConfigField(...)]` —
   the `Annotated` wrapper is transparent to type narrowing, making IDE
   autocomplete and mypy/pyright inference unaffected.
-- Schema files that need to be shared with code carrying no confiq dependency
-  remain shareable: import `ConfigField` only in the files that declare
-  confiq-annotated fields, not in callers.
 
 ## Pros and Cons of the Options
 
@@ -66,8 +89,6 @@ Typer, FastAPI, and `dataclasses-json` for exactly this purpose.
 
 - Good, because it is the established stdlib pattern for attaching arbitrary
   metadata to types without coupling the type to the library.
-  `typing.get_type_hints(..., include_extras=True)` is the documented retrieval
-  mechanism.
 - Good, because `ConfigField` is fully decoupled from pydantic. Pydantic reads
   `Annotated` for its own metadata (validators, constraints) via the same
   mechanism; the two layers compose without conflict.

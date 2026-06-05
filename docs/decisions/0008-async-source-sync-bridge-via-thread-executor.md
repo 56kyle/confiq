@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by 0013
 date: 2026-05-30
 ---
 # Bridge Async Sources in `load()` via a Single-Worker `ThreadPoolExecutor`
