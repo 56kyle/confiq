@@ -243,7 +243,7 @@ specification. Higher-index sources win on collision.
 
 ### 6.2 The resolver algorithm
 
-Given a schema (possibly `None`) and an ordered list of sources:
+Given a `ResolutionSpec` (schema — possibly `None` — sources, profile, plugins):
 
 1. **Profile filter.** If `profile` is given, drop any source whose `profile` is set and
    does not equal it.
@@ -278,30 +278,56 @@ bookkeeping only.
 
 ## 7. Loading API
 
-### 7.1 `load` (synchronous)
+### 7.1 The resolution spec
+
+Everything that determines a load — the schema, the ordered sources, the selected profile,
+and any plugins — is bundled into one immutable value:
 
 ```python
-def load(schema: type[T], sources: Sequence[Source], *, profile: str | None = None) -> T: ...
+@dataclass(frozen=True)
+class ResolutionSpec(Generic[T]):
+    schema: type[T] | None                       # None selects schemaless resolution
+    sources: Sequence[Source | AsyncSource]
+    profile: str | None = None
+    plugins: tuple[object, ...] = ()             # custom sources / adapters / transforms
 ```
 
-`load()` accepts only synchronous sources. Handed an `AsyncSource`, it raises a clear error
-directing the caller to `load_async()`. There is no `ThreadPoolExecutor` + `asyncio.run()`
-bridge — that approach is explicitly rejected for its event-loop and `ContextVar`-propagation
-hazards.
+`load()` (§7.2) and `ConfigHandle` (§8) both take a spec, so they cannot drift: a handle is
+exactly "hold this spec and re-run it." Plugins live here, not on the handle, because they
+describe *how to resolve*, not the reload lifecycle — and they therefore persist across a
+handle's reloads for free, because the spec persists.
 
-### 7.2 `load_async`
+### 7.2 `load` (synchronous)
 
 ```python
-async def load_async(schema: type[T],
-                     sources: Sequence[Source | AsyncSource],
-                     *, profile: str | None = None) -> T: ...
+@overload
+def load(spec: ResolutionSpec[T]) -> T: ...
+@overload
+def load(schema: type[T], sources: Sequence[Source], *,
+         profile: str | None = None, plugins: tuple[object, ...] = ()) -> T: ...
+```
+
+The convenience form builds a `ResolutionSpec` internally; both forms run the same resolver
+(§6.2). `load()` accepts only synchronous sources. Handed an `AsyncSource`, it raises a clear
+error directing the caller to `load_async()`. There is no `ThreadPoolExecutor` +
+`asyncio.run()` bridge — that approach is explicitly rejected for its event-loop and
+`ContextVar`-propagation hazards.
+
+### 7.3 `load_async`
+
+```python
+@overload
+async def load_async(spec: ResolutionSpec[T]) -> T: ...
+@overload
+async def load_async(schema: type[T], sources: Sequence[Source | AsyncSource], *,
+                     profile: str | None = None, plugins: tuple[object, ...] = ()) -> T: ...
 ```
 
 Drives `AsyncSource`s natively (gathered on the running loop) and sync sources inline.
 
-### 7.3 Schemaless
+### 7.4 Schemaless
 
-`load(None, sources)` (and `load_async(None, sources)`) returns a `SchemalessConfig` — a
+A spec with `schema=None` (or `load(None, sources)`) returns a `SchemalessConfig` — a
 read-only `Mapping` supporting `config["a"]["b"]` subscript access. No types, no validation,
 no nesting guarantees beyond the merged structure.
 
@@ -317,16 +343,14 @@ is what makes testing trivial.
 ### 8.2 `ConfigHandle`
 
 For applications that must pick up configuration changes at runtime, `ConfigHandle[T]` is the
-explicit opt-in. It owns a current snapshot, swaps it atomically on reload, and notifies
-subscribers.
+explicit opt-in. It holds a `ResolutionSpec`, recomputes it on `reload()`, swaps the current
+snapshot atomically, and notifies subscribers. It ships in the `[reload]` extra (§12.4), so
+the load-once majority — and the core itself — carry none of its machinery.
 
 ```python
 class ConfigHandle(Generic[T]):
-    @classmethod
-    def create(cls, schema: type[T],
-               sources: Sequence[Source | AsyncSource],   # positional (provisional, §14)
-               *, loop: AbstractEventLoop | None = None,
-               plugins: list[object] | None = None) -> "ConfigHandle[T]": ...
+    def __init__(self, spec: ResolutionSpec[T]) -> None: ...
+        # rejects a non-frozen schema — see below
 
     @property
     def current(self) -> T: ...                            # property (provisional, §14)
@@ -338,20 +362,126 @@ class ConfigHandle(Generic[T]):
         # fn receives (old, new); returns a disconnect callable (provisional, §14)
 ```
 
-- `loop` is used to schedule async subscribers when the handle is driven by sync `reload()`
-  (see §9.3).
-- `plugins` registers per-handle plugins that persist across reload cycles (the handle owns a
-  persistent `PluginManager`).
+A handle is constructed from a spec (`ConfigHandle(ResolutionSpec(Settings, sources=[...]))`),
+so it shares the resolution surface with `load()` and cannot drift from it.
 
-### 8.3 The user-owned singleton
+- **A handle requires a frozen schema.** Its lock-free read guarantee (§9.1) depends on each
+  snapshot being immutable, so the constructor rejects a non-frozen schema rather than
+  silently offering a guarantee it cannot keep. Plain `load()` still accepts non-frozen
+  schemas per the §3 gradient; only the *live, shared* path is constrained.
+- **No `loop` parameter and no per-handle plugin registry.** Plugins come from the spec
+  (§7.1) and persist across reloads because the spec persists. Async subscribers are driven by
+  `reload_async()`; there is no scheduling of async subscribers from sync `reload()` (§9.3).
 
-If an application wants ambient access, it builds its own module-level object over `load()`
-or a `ConfigHandle`. `confiq` never owns it. Example:
+### 8.3 Ambient access (user-owned)
+
+`confiq` never owns a global, but an application may build its own. Two cases decide the shape:
+
+- If config draws on **no runtime-derived source** (env and files only), an eager module-level
+  value works directly:
+  ```python
+  # myapp/config.py
+  settings = load(Settings, sources=[EnvSource("APP"), FileSource("config.toml")])
+  ```
+- If config draws on the **CLI**, the value cannot exist at import time (the CLI is not parsed
+  until a command runs), so the singleton is *initialized in the entry point* — typically the
+  app callback, once for the whole command tree (§10.6):
+  ```python
+  # myapp/config.py
+  _settings: Settings | None = None
+  def init_settings(*, cli: Source | None = None) -> Settings:
+      global _settings
+      _settings = load(settings_spec(cli=cli)); return _settings
+  def settings() -> Settings:
+      if _settings is None: raise RuntimeError("call init_settings() in your entry point")
+      return _settings
+  ```
+  This keeps immutability (each value is frozen) and is type-honest, at the cost of an accessor
+  call (`settings()`) rather than a bare name. The holder is the user's; it is not
+  `ConfigHandle` and carries none of its reload machinery.
+
+### 8.4 Ambient access via `LazyConfig` (the proxy option)
+
+For applications that want a literal `from myapp.config import config` bare name that still
+reflects CLI overrides, `confiq` offers an opt-in lazy proxy. It is the only construct that
+places a `confiq` object on the read path (§2 principle 1), and is deliberately marked as such.
+
+The singleton is one object — **`LazyConfig[T]`**, a lifecycle handle and a sibling to
+`ConfigHandle` (§8.2). It exposes the read surface and the lifecycle controls as named members,
+so nothing is returned as a tuple:
+
+```python
+class LazyConfig(Generic[T]):
+    def __init__(self, spec_builder: Callable[..., ResolutionSpec[T]]) -> None: ...
+    @property
+    def value(self) -> T: ...                                  # the proxy, typed as the schema
+    def bind(self, *, cli: Source | None = None) -> None: ...  # resolve the base value once
+    def reset(self) -> None: ...                               # clear it (used by pytest-confiq, §11.3)
+    @property
+    def bound(self) -> bool: ...
+```
+
+`bind`/`reset`/`bound` live on the handle, not on the proxy, on purpose: `value` forwards every
+attribute to the wrapped config, so a `bind` method on *it* would shadow a schema field named
+`bind` (a plausible field). Putting control on the handle keeps a clean, well-named `bind` with
+no shadowing and no invented dunder.
 
 ```python
 # myapp/config.py
-settings = load(Settings, sources=[...])
+from confiq import LazyConfig
+
+config_handle = LazyConfig(settings_spec)   # the lazy handle; bind it in the entry point
+config = config_handle.value                # the proxy, typed Settings, for everyday imports
 ```
+
+```python
+# myapp/__main__.py
+from myapp.config import config_handle
+
+@app.callback()
+def _bootstrap(db_host: Annotated[str | None, typer.Option()] = None):
+    config_handle.bind(cli=TyperSource())   # resolve the base once, post-parse (§10.6)
+```
+
+```python
+# anywhere
+from myapp.config import config
+host = config.database.host                 # type-checked at use sites; CLI-aware after binding
+```
+
+`LazyConfig` takes the same spec-builder the rest of the app uses
+(`settings_spec(*, cli=...) -> ResolutionSpec[T]`) and is generic in `T`, so `value` — and the
+re-exported `config` — is typed as the schema with no manual `cast`. `config_handle.value`
+returns the same stable proxy on every call; you grab it once, import it everywhere, and
+binding/override changes happen inside it.
+
+**Resolution is override-aware, not cache-only.** On each access the proxy first checks the
+active `context.override()` ContextVar (§11); if an override is in scope it overlays it,
+otherwise it returns the base value set by `bind(...)`. This is what keeps the testing story
+unified (§11.3) — the same `context.override()` primitive the value path uses flows through the
+proxy, so tests need no separate proxy-lifecycle machinery.
+
+What the proxy keeps and what it costs:
+
+- **Keeps:** immutability of the resolved value (the base is frozen); static type safety at use
+  sites (`config` is typed as the schema everywhere — `LazyConfig`'s generic return removes the
+  earlier manual `cast`).
+- **Costs:** (1) reads can raise before `bind()` runs — mitigated by binding in the app callback,
+  after which reads do not raise; (2) a discipline of not dereferencing `config` at literal
+  import time (the proxy raises a clear "not bound" error if violated, rather than returning
+  pre-CLI values); (3) it is a proxy, so `isinstance` works (via `__class__` forwarding) but
+  `type(config) is Settings`, pickling, and identity edges are imperfect; (4) the §9.1
+  single-atomic-read property does not hold on the proxy path — each access is a `ContextVar`
+  check plus the base read (cheap, and a no-op when no override is active, i.e. normal
+  production).
+
+If you would rather the control be discoverable *through* the proxy than via a separate handle
+name, the collision-safe form is a single reserved attribute, `config.__confiq__.bind(...)` —
+the dunder namespace cannot clash with a schema field. The handle above is preferred for its
+cleaner surface.
+
+The value and accessor forms (§8.1, §8.3) remain the recommended, maximally-testable defaults;
+`LazyConfig` is the ergonomic option carrying the named costs above.
 
 ---
 
@@ -359,10 +489,11 @@ settings = load(Settings, sources=[...])
 
 ### 9.1 Lock-free reads
 
-For a frozen schema the value is immutable, so `ConfigHandle.current` is a single atomic
-attribute read under CPython with no torn-read hazard and no lock. Thread safety is a
-property of immutability, not of a locking discipline. (For non-frozen schemas the value is
-mutable; the lock-free guarantee does not apply — see §3.)
+A `ConfigHandle` requires a frozen schema (§8.2), so its current snapshot is always immutable
+and `current` is a single atomic attribute read under CPython — no torn-read hazard, no lock.
+Thread safety is a property of immutability, not of a locking discipline. (Plain `load()` may
+return a mutable value per the §3 gradient, but that value has no shared identity to protect;
+the live, shared path is the one held to frozenness.)
 
 ### 9.2 Reload is copy-on-write
 
@@ -374,13 +505,16 @@ concurrency cost lives here, in the opt-in path — never in the common `load()`
 
 `on_reload` is modeled on a **blinker** signal: weak-referenced subscribers (a handler's
 lifetime is not accidentally extended) and documented connect/disconnect semantics, instead
-of a bespoke callback list.
+of a bespoke callback list. (blinker is pulled in by the `[reload]` extra, not the core.)
 
-Subscribers may be sync or async. `reload_async()` drives async subscribers on the running
-loop (gathered and awaited); sync subscribers run inline after the swap. `reload()` runs sync
-subscribers on a daemon thread outside the lock; an async subscriber attached to a handle
-driven only by sync `reload()` requires the `loop` provided at `create()` time and is
-scheduled via `loop.call_soon_threadsafe`. No subscriber may call `reload()` synchronously.
+Subscribers may be sync or async, but each kind is tied to the matching reload entry point —
+there is no cross-scheduling and no stored event-loop reference. `reload()` performs the swap,
+releases the lock, then runs sync subscribers **inline in the caller's thread**; reload is not
+a hot path, so no daemon thread is needed. `reload_async()` performs the swap and then awaits
+async subscribers (gathered) on the running loop, running any sync subscribers inline. An
+async subscriber registered on a handle that is only ever driven by sync `reload()` is a usage
+error and is reported as one, rather than supported via a background loop. No subscriber may
+call `reload()` synchronously (the `ReentrancyGuard` fast-fails).
 
 ### 9.4 Async entry points
 
@@ -455,12 +589,40 @@ lives most naturally at the Click layer; Typer generation needs a drop-to-Click 
 Typer-aware command factory. This asymmetry is documented rather than hidden behind a promise
 of symmetric behavior.
 
+### 10.6 Bootstrapping ambient config in the app callback
+
+When the CLI is a source, ambient config (§8.3, §8.4) is established **once** in the Typer/Click
+app callback, which runs before any command in the tree (including nested sub-apps), so no
+command repeats the load:
+
+```python
+from .config import config_handle, config   # handle for bootstrap; config (proxy) for use
+
+@app.callback()
+def _bootstrap(db_host: Annotated[str | None, typer.Option()] = None):   # global config flags
+    config_handle.bind(cli=TyperSource())   # resolve the proxy's base once, post-parse
+
+@app.command()
+def serve():
+    run(config)                              # ambient value, already bound
+```
+
+Config-overriding flags live on the callback (group-level), not on individual subcommands: the
+callback parses before a subcommand's own options exist, and a flag that tweaks *configuration*
+is naturally global. Per-command flags that are not config stay on their command. (If a config
+flag must live on a single subcommand, a `@with_config`-style decorator on that command performs
+the bind at command-invocation time instead.)
+
 ---
 
 ## 11. Testing
 
+### 11.1 Why the value path is trivial to test
+
 A first-class goal, not a consequence. Because configuration is a plain value with no global
 identity, a test constructs the value it wants instead of mutating and restoring shared state.
+
+### 11.2 Primitives and fixtures
 
 The core provides the primitives the testing story rests on: `MemorySource` (in-process data)
 and `context.override()` (a `ContextVar`-based scoped override, async-safe). A `pytest-confiq`
@@ -478,6 +640,37 @@ Two requirements fall back onto the core so the plugin stays thin: `MemorySource
 `override()` must be ergonomic, and the resolver must support cheaply splicing or overriding a
 single key in an existing source list.
 
+### 11.3 Testing code that uses `lazy_config`
+
+`lazy_config` (§8.4) reintroduces a process-global value — the situation that makes
+`pytest-django` necessary — so code that reads the ambient `config` needs lifecycle handling in
+tests. Two design choices make this nearly free rather than a second isolation system:
+
+- **The proxy is override-aware.** Because each access consults the active `context.override()`
+  ContextVar before its bound base, the *existing* `config` fixture and autouse reset (§11.2)
+  flow straight through the proxy. A test sets `context.override({...})`; code-under-test doing
+  `from myapp.config import config; config.x` sees the overridden value; the autouse reset
+  clears it afterward. No proxy-specific set/reset machinery is required beyond the binder
+  (below).
+- **Unbound by default between tests.** The app callback that calls `config_handle.bind(...)`
+  does not run under pytest, so the proxy is left *unbound*; an accidental read of ambient
+  `config` in a test that did not establish one raises a clear "not bound" error rather than
+  leaking a stale value or a production default. `pytest-confiq`'s autouse fixture calls the
+  `LazyConfig` handle's `reset()` between tests to guarantee this; tests that want ambient config
+  establish it via the `config` fixture / `context.override()` (or, when they need a concrete
+  bound base, `config_handle.bind(...)` with a `MemorySource` standing in for the CLI layer).
+
+The honest asterisk: testing `lazy_config`-based code is still *less* trivial than the
+value/accessor path — you establish ambient config through a fixture and rely on autouse
+isolation, rather than simply passing a value in. That is the inherent cost of ambient access,
+with a real upside: you can test code that reads the global *without* refactoring it to accept a
+config parameter (the reason `pytest-django` exists). Non-proxy users are unaffected — their
+testing is §11.1–§11.2 with no proxy surface.
+
+(Had the proxy been cache-only instead of override-aware, `pytest-confiq` would have needed its
+own `set`/`reset` fixtures and a second autouse reset distinct from the override path; the
+override-aware design in §8.4 is what avoids that fork.)
+
 ---
 
 ## 12. Extension and packaging
@@ -490,18 +683,22 @@ single key in an existing source list.
   without a pull request.
 - **pluggy hookimpls** cover stateless transforms and adapter resolution, including
   `confiq_get_schema_adapter`.
-- **Per-handle plugins** may also be registered directly on a `ConfigHandle` via
-  `create(plugins=...)`; the handle owns a persistent `PluginManager` whose registrations
-  survive reloads (provisional, §14).
+- **Plugins are part of the resolution spec** (§7.1), not a handle responsibility: the same
+  `plugins` apply whether you `load()` once or hold a `ConfigHandle`, and they persist across a
+  handle's reloads because the handle persists its spec. (If per-handle plugin *isolation* ever
+  proves necessary, it returns as a spec built per handle — never as a handle-owned manager.)
 
 ### 12.4 Dependency discipline
 
 The governing rule (Koanf-style): **the core depends on nothing optional.** Core runtime
-dependencies are `pydantic` (≥2), `pluggy`, and `blinker`. Everything else — CLI frameworks,
-dotenv parsing, YAML/TOML loaders for non-stdlib formats, fsspec for remote filesystems, and
-all cloud SDKs — sits behind an extra. A user who only reads environment variables installs
-none of them. (This corrects `design_c`'s treatment of `typer`/`python-dotenv` as mandatory;
-local file reading uses the stdlib so fsspec is needed only for remote URIs.)
+dependencies are just `pydantic` (≥2) and `pluggy`. Everything else sits behind an extra:
+CLI frameworks (`[cli]`), dotenv (`[dotenv]`), non-stdlib loaders (`[yaml]`, `[toml]`), remote
+filesystems (`[remote]`, fsspec), cloud SDKs (`[aws]`/`[gcp]`/`[vault]`), and the
+**live-reload layer** — `ConfigHandle`, its notification machinery, and `blinker` — behind
+`[reload]`. A user who only reads environment variables installs nothing but the core, and the
+load-once majority never pays for reload. (This corrects `design_c`'s treatment of
+`typer`/`python-dotenv` as mandatory; local file reading uses the stdlib, so fsspec is needed
+only for remote URIs.)
 
 ---
 
@@ -525,17 +722,15 @@ are masked in all error output on pydantic schemas.
 ## 14. Provisional decisions
 
 These signature-level points were not separately deliberated; the conservative call is
-recorded here and is easy to override.
+recorded here and is easy to override. (The earlier `plugins`-on-handle and `loop`-parameter
+questions are now resolved — plugins live in the `ResolutionSpec` (§7.1) and the `loop`
+parameter is gone (§9.3) — so they are no longer open.)
 
 1. **`ConfigHandle.current` is a property** (not a method). Reads more naturally for an
    immutable snapshot and avoids `handle.current()`. Affects all call sites if reversed.
-2. **`create()` takes `sources` positionally** (matching `load()`'s shape in this spec).
-   Keyword-only is the more defensive alternative.
-3. **`create()` retains `plugins`.** `design_c` Decision 10 made per-handle plugin
-   registration a deliberate feature (persistent `PluginManager` across reloads); it is kept
-   rather than silently dropped. Open question: keep it, or require all per-handle
-   registration to go through entry points / hookimpls.
-4. **`on_reload(fn)` passes `(old, new)` and returns a disconnect callable.** The `(old, new)`
+2. **`load()`'s convenience form takes `schema` and `sources` positionally**, with `profile`
+   and `plugins` keyword-only. Keyword-only `sources` is the more defensive alternative.
+3. **`on_reload(fn)` passes `(old, new)` and returns a disconnect callable.** The `(old, new)`
    arity preserves `design_c`'s richer signature (useful for diffing); the disconnect return
    suits weak-referenced blinker subscribers better than returning `fn` for decorator use.
    Open question: is the old value needed, and should the return be a disconnect handle or the
@@ -557,3 +752,6 @@ Deliberate refusals, recorded so they do not creep back in:
   remote-filesystem layer, or cloud SDK.
 - **No sync→async bridging.** Sync entry points reject async sources rather than smuggling an
   event loop into a worker thread.
+- **No background machinery for reload.** Reload runs subscribers inline on the thread that
+  called `reload()` / the loop that awaited `reload_async()`; there is no daemon thread and no
+  stored event loop. Live reload is also not in the core — it lives behind the `[reload]` extra.
