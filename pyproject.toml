@@ -37,7 +37,6 @@ dependencies = [
 [project.optional-dependencies]
 yaml   = ["pyyaml>=6.0"]
 toml   = ["tomli>=2.0; python_version<'3.11'"]
-watch  = ["watchdog>=4.0"]
 click  = ["click>=8.1"]
 aws    = ["boto3>=1.34"]
 gcp    = ["google-cloud-secret-manager>=2.18"]
@@ -75,8 +74,8 @@ docs = [
 ]
 
 [project.entry-points."confiq.sources"]
-file = "confiq.sources._file:FileSource"
-env  = "confiq.sources._env:EnvSource"
+file = "confiq.source._file:FileSource"
+env  = "confiq.source._env:EnvSource"
 
 [project.entry-points.confiq]
 
