@@ -164,33 +164,37 @@ full opt-out.
 
 ## 5. Sources and loaders
 
-### 5.1 `Source`
+### 5.1 `Source` / `SyncSource` / `AsyncSource`
 
-A source is *where* configuration comes from. It yields a mapping and carries two pieces of
-declarative behavior beyond fetching:
+A source is *where* configuration comes from. The protocol hierarchy has three levels:
 
 ```python
 @runtime_checkable
 class Source(Protocol):
+    """Attribute-only base for all configuration sources."""
     name: str                                   # for provenance and error messages
-    mode: Literal["override", "fill"]           # default "override" (see §5.5)
+    mode: ListFillBehavior                      # default "override" (see §5.5)
     profile: str | None                         # default None (see §5.6)
+
+@runtime_checkable
+class SyncSource(Source, Protocol):
+    """A source that delivers data synchronously."""
     def fetch(self) -> Mapping[str, Any]: ...
 ```
 
+`Source` is the shared base for mixed-source collections; `SyncSource` and `AsyncSource`
+(§5.2) each add the matching fetch contract without re-declaring the shared attributes.
 A `BaseSource` convenience class supplies the defaults (`mode="override"`, `profile=None`)
-so concrete sources need only implement `name` and `fetch`.
+so concrete sync sources need only implement `name` and `fetch`.
 
 ### 5.2 `AsyncSource`
 
-Async sources implement a separate protocol rather than coloring the sync one:
+Async sources extend `Source` rather than duplicating its attributes:
 
 ```python
 @runtime_checkable
-class AsyncSource(Protocol):
-    name: str
-    mode: Literal["override", "fill"]
-    profile: str | None
+class AsyncSource(Source, Protocol):
+    """A source that delivers data asynchronously."""
     async def fetch_async(self) -> Mapping[str, Any]: ...
 ```
 
@@ -287,7 +291,7 @@ and any plugins — is bundled into one immutable value:
 @dataclass(frozen=True)
 class ResolutionSpec(Generic[T]):
     schema: type[T] | None                       # None selects schemaless resolution
-    sources: Sequence[Source | AsyncSource]
+    sources: Sequence[Source]
     profile: str | None = None
     plugins: tuple[object, ...] = ()             # custom sources / adapters / transforms
 ```
@@ -303,7 +307,7 @@ handle's reloads for free, because the spec persists.
 @overload
 def load(spec: ResolutionSpec[T]) -> T: ...
 @overload
-def load(schema: type[T], sources: Sequence[Source], *,
+def load(schema: type[T], sources: Sequence[SyncSource], *,
          profile: str | None = None, plugins: tuple[object, ...] = ()) -> T: ...
 ```
 
@@ -319,7 +323,7 @@ error directing the caller to `load_async()`. There is no `ThreadPoolExecutor` +
 @overload
 async def load_async(spec: ResolutionSpec[T]) -> T: ...
 @overload
-async def load_async(schema: type[T], sources: Sequence[Source | AsyncSource], *,
+async def load_async(schema: type[T], sources: Sequence[Source], *,
                      profile: str | None = None, plugins: tuple[object, ...] = ()) -> T: ...
 ```
 
@@ -389,7 +393,7 @@ so it shares the resolution surface with `load()` and cannot drift from it.
   ```python
   # myapp/config.py
   _settings: Settings | None = None
-  def init_settings(*, cli: Source | None = None) -> Settings:
+  def init_settings(*, cli: SyncSource | None = None) -> Settings:
       global _settings
       _settings = load(settings_spec(cli=cli)); return _settings
   def settings() -> Settings:
@@ -415,7 +419,7 @@ class LazyConfig(Generic[T]):
     def __init__(self, spec_builder: Callable[..., ResolutionSpec[T]]) -> None: ...
     @property
     def value(self) -> T: ...                                  # the proxy, typed as the schema
-    def bind(self, *, cli: Source | None = None) -> None: ...  # resolve the base value once
+    def bind(self, *, cli: SyncSource | None = None) -> None: ...  # resolve the base value once
     def reset(self) -> None: ...                               # clear it (used by pytest-confiq, §11.3)
     @property
     def bound(self) -> bool: ...
@@ -518,9 +522,11 @@ call `reload()` synchronously (the `ReentrancyGuard` fast-fails).
 
 ### 9.4 Async entry points
 
-Async is a clean second entry point, not a colored twin of every method. `Source` and
-`AsyncSource` are separate protocols; `load`/`reload` are sync; `load_async`/`reload_async`
-are async. Sync entry points reject async sources rather than bridging them.
+Async is a clean second entry point, not a colored twin of every method. `SyncSource` and
+`AsyncSource` share the attribute-only base `Source`; `load`/`reload` accept
+`Sequence[SyncSource]`; `load_async`/`reload_async` accept `Sequence[Source]` (the shared
+base, covering both sync and async sources). Sync entry points reject async sources rather
+than bridging them.
 
 ---
 
