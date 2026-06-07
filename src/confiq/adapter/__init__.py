@@ -1,8 +1,17 @@
-"""Subpackage defining configuration field adapters used throughout the confiq package."""
+"""Subpackage defining schema adapters used throughout the confiq package."""
+from __future__ import annotations
 
-from _schema_adapter import SchemaAdapter
+from confiq.adapter._dataclass import DataclassAdapter
+from confiq.adapter._pydantic import PydanticAdapter
+from confiq.adapter._schema_adapter import SchemaAdapter
+from confiq.adapter._schemaless import SchemalessAdapter
+from confiq.adapter._typeddict import TypedDictAdapter
 
 
 __all__: list[str] = [
-    "SchemaAdapter"
+    "DataclassAdapter",
+    "PydanticAdapter",
+    "SchemaAdapter",
+    "SchemalessAdapter",
+    "TypedDictAdapter",
 ]

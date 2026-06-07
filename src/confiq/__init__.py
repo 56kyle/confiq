@@ -1,17 +1,63 @@
-"""confiq."""
+"""confiq — typed configuration from an ordered list of sources."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from confiq import context
+from confiq._errors import ConfigValidationError
+from confiq._errors import ConfiqError
+from confiq._errors import MissingConfigError
+from confiq._errors import SchemaError
+from confiq._errors import SourceError
+from confiq._field import ConfigField
+from confiq._hookspecs import hookimpl
+from confiq._lazy import LazyConfig
+from confiq._load import ResolutionSpec
 from confiq._load import load
 from confiq._load import load_async
+from confiq._schemaless import SchemalessConfig
+from confiq.cli._bind import ConfigBind
+from confiq.source._argparse import ArgparseSource
+from confiq.source._env import EnvSource
+from confiq.source._file import FileSource
+from confiq.source._memory import MemorySource
 
 
-__all__ = [
-    "ConfigBind",
+if TYPE_CHECKING:
+    from confiq._handle import ConfigHandle
+
+try:
+    from confiq._handle import ConfigHandle as ConfigHandle  # noqa: F401
+except ImportError:
+    pass
+
+__all__: list[str] = [
+    # errors
+    "ConfiqError",
+    "ConfigValidationError",
+    "MissingConfigError",
+    "SchemaError",
+    "SourceError",
+    # field metadata
     "ConfigField",
-    "ConfigHandle",
-    "MemorySource",
-    "SchemalessConfig",
-    "hookimpl",
+    # loading
+    "ResolutionSpec",
     "load",
     "load_async",
+    # lifecycle
+    "ConfigHandle",  # requires confiq[reload]
+    "LazyConfig",
+    # CLI
+    "ConfigBind",
+    # schemaless
+    "SchemalessConfig",
+    # context override
+    "context",
+    # sources
+    "ArgparseSource",
+    "EnvSource",
+    "FileSource",
+    "MemorySource",
+    # plugin system
+    "hookimpl",
 ]
