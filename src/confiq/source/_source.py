@@ -11,21 +11,23 @@ from confiq._types import ListFillBehavior
 
 @runtime_checkable
 class Source(Protocol):
-    """Defines a configuration Source."""
+    """Attribute-only base protocol for all configuration sources."""
     name: str
     mode: ListFillBehavior
     profile: str | None
+
+
+@runtime_checkable
+class SyncSource(Source, Protocol):
+    """A configuration source that delivers data synchronously."""
 
     def fetch(self) -> Mapping[str, Any]:
         ...
 
 
 @runtime_checkable
-class AsyncSource(Protocol):
-    """Defines an async configuration Source."""
-    name: str
-    mode: ListFillBehavior
-    profile: str | None
+class AsyncSource(Source, Protocol):
+    """A configuration source that delivers data asynchronously."""
 
     async def fetch_async(self) -> Mapping[str, Any]:
         ...

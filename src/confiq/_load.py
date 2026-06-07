@@ -8,8 +8,8 @@ from typing import overload
 
 from confiq._schemaless import SchemalessConfig
 from confiq._types import T
-from confiq.source._source import AsyncSource
 from confiq.source._source import Source
+from confiq.source._source import SyncSource
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class ResolutionSpec(Generic[T]):
     """Immutable bundle of everything needed to resolve a configuration (design_d §7.1)."""
 
     schema: type[T] | None
-    sources: Sequence[Source | AsyncSource]
+    sources: Sequence[Source]
     profile: str | None = None
     plugins: tuple[object, ...] = ()
 
@@ -27,7 +27,7 @@ def load(spec: ResolutionSpec[T]) -> T: ...
 @overload
 def load(
     schema: type[T],
-    sources: Sequence[Source],
+    sources: Sequence[SyncSource],
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
@@ -35,14 +35,14 @@ def load(
 @overload
 def load(
     schema: None,
-    sources: Sequence[Source],
+    sources: Sequence[SyncSource],
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
 ) -> SchemalessConfig: ...
 def load(
     schema: type[T] | ResolutionSpec[T] | None,
-    sources: Sequence[Source] | None = None,
+    sources: Sequence[SyncSource] | None = None,
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
@@ -61,7 +61,7 @@ async def load_async(spec: ResolutionSpec[T]) -> T: ...
 @overload
 async def load_async(
     schema: type[T],
-    sources: Sequence[Source | AsyncSource],
+    sources: Sequence[Source],
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
@@ -69,14 +69,14 @@ async def load_async(
 @overload
 async def load_async(
     schema: None,
-    sources: Sequence[Source | AsyncSource],
+    sources: Sequence[Source],
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
 ) -> SchemalessConfig: ...
 async def load_async(
     schema: type[T] | ResolutionSpec[T] | None,
-    sources: Sequence[Source | AsyncSource] | None = None,
+    sources: Sequence[Source] | None = None,
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),

@@ -7,20 +7,19 @@ from typing import Any
 
 from confiq._schemaless import SchemalessConfig
 from confiq._types import T
-from confiq.source._source import AsyncSource
 from confiq.source._source import Source
+from confiq.source._source import SyncSource
 
 
 def resolve(
     schema: type[T] | None,
-    sources: Sequence[Source],
+    sources: Sequence[SyncSource],
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
 ) -> T | SchemalessConfig:
     """Execute the 7-step sync resolver (design_d §6.2).
 
-    Raises ConfiqError immediately if any source implements AsyncSource.
     Steps: profile filter → fetch → merge+provenance → adapter → coerce → validate → return.
     """
     ...
@@ -28,7 +27,7 @@ def resolve(
 
 async def resolve_async(
     schema: type[T] | None,
-    sources: Sequence[Source | AsyncSource],
+    sources: Sequence[Source],
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
@@ -38,9 +37,9 @@ async def resolve_async(
 
 
 def _filter_by_profile(
-    sources: Sequence[Source | AsyncSource],
+    sources: Sequence[Source],
     profile: str | None,
-) -> list[Source | AsyncSource]: ...
+) -> list[Source]: ...
 
 
 def _apply_parsers(
@@ -50,4 +49,4 @@ def _apply_parsers(
 ) -> dict[str, Any]: ...
 
 
-def _assert_no_async_sources(sources: Sequence[Source | AsyncSource]) -> None: ...
+def _assert_no_async_sources(sources: Sequence[Source]) -> None: ...

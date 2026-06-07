@@ -7,7 +7,7 @@ from typing import Generic
 
 from confiq._load import ResolutionSpec
 from confiq._types import T
-from confiq.source._source import Source
+from confiq.source._source import SyncSource
 
 
 class LazyConfig(Generic[T]):
@@ -44,7 +44,7 @@ class LazyConfig(Generic[T]):
         """
         ...
 
-    def bind(self, *, cli: Source | None = None) -> None:
+    def bind(self, *, cli: SyncSource | None = None) -> None:
         """Resolve the base config value once, post-CLI-parse.
 
         Calls spec_builder(cli=cli) to build the ResolutionSpec, then runs

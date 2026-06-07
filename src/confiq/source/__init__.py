@@ -9,6 +9,7 @@ from confiq.source._file import FileSource
 from confiq.source._memory import MemorySource
 from confiq.source._source import AsyncSource
 from confiq.source._source import Source
+from confiq.source._source import SyncSource
 
 
 __all__: list[str] = [
@@ -20,4 +21,5 @@ __all__: list[str] = [
     "FileSource",
     "MemorySource",
     "Source",
+    "SyncSource",
 ]
