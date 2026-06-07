@@ -1,7 +1,8 @@
 ---
-status: accepted
+status: superseded by 0018
 date: 2026-06-05
-supersedes: 0005
+supersedes: "0005"
+superseded-by: "0018"
 ---
 # `ConfigHandle.on_reload` Uses Blinker-Style Signals with Sync and Async Subscriber Support
 

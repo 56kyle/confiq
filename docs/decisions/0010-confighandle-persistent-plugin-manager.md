@@ -4,7 +4,7 @@ Date: 2026-06-02
 
 ## Status
 
-Accepted
+Superseded by [0017](0017-resolution-spec-unified-load-surface.md)
 
 ## Context
 
