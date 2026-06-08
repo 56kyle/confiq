@@ -4,11 +4,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from confiq import context
-from confiq._errors import ConfigValidationError
-from confiq._errors import ConfiqError
-from confiq._errors import MissingConfigError
-from confiq._errors import SchemaError
-from confiq._errors import SourceError
+from confiq.exceptions import ConfigValidationError
+from confiq.exceptions import ConfiqError
+from confiq.exceptions import MissingConfigError
+from confiq.exceptions import SchemaError
+from confiq.exceptions import SourceError
 from confiq._field import ConfigField
 from confiq._hookspecs import hookimpl
 from confiq._lazy import LazyConfig
