@@ -45,6 +45,12 @@ and restoring shared state.
    immutable value; the only mutation is opt-in live reload.
 6. **No DSL in the values.** No string interpolation, computed expressions, or object
    instantiation inside config values. Computed values are the job of a *source*.
+7. **Rust-port readiness is a tiebreaker, not a goal.** When two Python designs are otherwise
+   equivalent, resolve toward structured or enum forms — they map cleanly to Rust structs and
+   enums with no ergonomic cost today. The public Python API stays Python-shaped; a PyO3
+   binding layer is the right reconciliation point if a port ever happens. No decision is made
+   *because* of a port; the frame is "no worse for Python callers, easier to port if we ever
+   do." (ADR 0021.)
 
 ---
 
@@ -125,9 +131,10 @@ It is the load-bearing wall behind multi-schema support.
 
 ```python
 class SchemaAdapter(Protocol[T]):
-    def field_metadata(self) -> Mapping[str, list[Any]]: ...
+    def field_metadata(self) -> FieldAnnotations: ...
         # field name → the Annotated *extras* for that field (incl. ConfigField). Not the
         # bare type — callers that need the type hold the schema class directly.
+        # FieldAnnotations is a TypeAlias for Mapping[str, list[Any]].
     def validate(self, data: Mapping[str, Any]) -> T: ...
         # validate/coerce the merged mapping into an instance of the declared type.
 ```
@@ -173,7 +180,7 @@ A source is *where* configuration comes from. The protocol hierarchy has three l
 class Source(Protocol):
     """Attribute-only base for all configuration sources."""
     name: str                                   # for provenance and error messages
-    mode: ListFillBehavior                      # default "override" (see §5.5)
+    mode: MergeMode                             # default MergeMode.OVERRIDE (see §5.5)
     profile: str | None                         # default None (see §5.6)
 
 @runtime_checkable
@@ -184,7 +191,7 @@ class SyncSource(Source, Protocol):
 
 `Source` is the shared base for mixed-source collections; `SyncSource` and `AsyncSource`
 (§5.2) each add the matching fetch contract without re-declaring the shared attributes.
-A `BaseSource` convenience class supplies the defaults (`mode="override"`, `profile=None`)
+A `BaseSource` convenience class supplies the defaults (`mode=MergeMode.OVERRIDE`, `profile=None`)
 so concrete sync sources need only implement `name` and `fetch`.
 
 ### 5.2 `AsyncSource`
@@ -197,6 +204,11 @@ class AsyncSource(Source, Protocol):
     """A source that delivers data asynchronously."""
     async def fetch_async(self) -> Mapping[str, Any]: ...
 ```
+
+Sources carry no output generic. The pipeline is "typed at the edges, dynamic in the middle":
+`T` lives at `SchemaAdapter` (post-merge); a source-level generic would be erased at the merge
+boundary and adds no static guarantees. `ResolutionSpec[T]` keeps `T` cleanly at the schema
+level; sources are `Sequence[Source]`, not `Sequence[Source[???]]`. (ADR 0022.)
 
 ### 5.3 `Loader`
 
@@ -224,9 +236,20 @@ Loaders: JSON (core), YAML (`[yaml]`), TOML (stdlib `tomllib` on 3.11+, `[toml]`
 
 ### 5.5 `mode`: override vs fill
 
-`mode="override"` (default) is normal precedence — the source clobbers prior values for keys
-it supplies. `mode="fill"` contributes only keys *not already supplied* by a
+`mode` is typed as `MergeMode`, a `StrEnum`:
+
+```python
+class MergeMode(enum.StrEnum):
+    OVERRIDE = "override"
+    FILL = "fill"
+```
+
+`MergeMode.OVERRIDE` (default) is normal precedence — the source clobbers prior values for
+keys it supplies. `MergeMode.FILL` contributes only keys *not already supplied* by a
 higher-precedence source: a defaults layer that cannot accidentally overwrite real values.
+`StrEnum` equality (`MergeMode.OVERRIDE == "override"`) keeps serialised configs readable
+without conversion. Call sites pass `MergeMode.OVERRIDE` / `MergeMode.FILL`; bare strings
+are a type error. (ADR 0024 — replaces the former `ListFillBehavior` literal.)
 
 ### 5.6 `profile`
 
@@ -251,13 +274,18 @@ Given a `ResolutionSpec` (schema — possibly `None` — sources, profile, plugi
 
 1. **Profile filter.** If `profile` is given, drop any source whose `profile` is set and
    does not equal it.
-2. **Fetch.** Drive each remaining source in order. `Source.fetch()` returns a mapping;
-   file-backed sources read bytes (stdlib for local paths, fsspec for remote) and pass them
-   through their `Loader`. Env/CLI sources map their flat keys onto config paths using the
-   name convention (prefix + delimiter), with `ConfigField.env` / `ConfigBind` overrides.
-3. **Merge.** Deep-merge the mappings low → high. For `mode="override"` sources later wins;
-   for `mode="fill"` sources a key is contributed only if absent so far. Lists are replaced,
-   not concatenated. A parallel **provenance** map records the winning source name per leaf.
+2. **Fetch.** Drive each remaining source in order. `SyncSource.fetch()` (or
+   `AsyncSource.fetch_async()`) returns a `Mapping[str, Any]`; each result is wrapped in a
+   `FetchedEntry(name, data, mode)` before being passed to the merge step, decoupling fetch
+   from merge. File-backed sources read bytes (stdlib for local paths, fsspec for remote) and
+   pass them through their `Loader`. Env/CLI sources map their flat keys onto config paths
+   using the name convention (prefix + delimiter), with `ConfigField.env` / `ConfigBind`
+   overrides.
+3. **Merge.** Deep-merge the `FetchedEntry` list low → high. For `MergeMode.OVERRIDE` sources
+   later wins; for `MergeMode.FILL` sources a key is contributed only if absent so far. Lists
+   are replaced, not concatenated. A parallel `Provenance` map (`Mapping[str, str]`: dotted
+   field path → source name) records the winning source name per leaf. The step produces a
+   `ResolvedSnapshot(merged, provenance)`.
 4. **Adapter.** Resolve the `SchemaAdapter` for the schema type via the pluggy hook
    (`schema=None` selects the schemaless adapter).
 5. **Coerce.** Read `field_metadata`; apply each field's `ConfigField.parser` to raw string
@@ -278,6 +306,19 @@ Provenance is tracked during the merge **and surfaced in error messages** — a 
 missing-field error names the source responsible, rather than provenance being internal
 bookkeeping only.
 
+### 6.5 Named pipeline boundary types
+
+Multi-value boundaries in the resolver pipeline are named when their fields constitute a
+contract. Single-value intermediates remain plain types. (ADR 0023.)
+
+| Name | Kind | Fields / alias target | Purpose |
+|------|------|-----------------------|---------|
+| `FetchedEntry` | frozen dataclass | `name: str`, `data: Mapping[str, Any]`, `mode: MergeMode` | Unit passed from fetch step to merge step; decouples the two steps |
+| `ResolvedSnapshot` | frozen dataclass | `merged: dict[str, Any]`, `provenance: Provenance` | Output of the merge step |
+| `Provenance` | `TypeAlias` | `Mapping[str, str]` | Dotted field path → winning source name |
+| `FieldAnnotations` | `TypeAlias` | `Mapping[str, list[Any]]` | Return type of `SchemaAdapter.field_metadata` |
+| `PluginList` | `TypeAlias` | `tuple[object, ...]` | Ordered immutable sequence of pluggy plugins in `ResolutionSpec` |
+
 ---
 
 ## 7. Loading API
@@ -293,7 +334,7 @@ class ResolutionSpec(Generic[T]):
     schema: type[T] | None                       # None selects schemaless resolution
     sources: Sequence[Source]
     profile: str | None = None
-    plugins: tuple[object, ...] = ()             # custom sources / adapters / transforms
+    plugins: PluginList = ()                     # custom sources / adapters / transforms
 ```
 
 `load()` (§7.2) and `ConfigHandle` (§8) both take a spec, so they cannot drift: a handle is
@@ -308,7 +349,7 @@ handle's reloads for free, because the spec persists.
 def load(spec: ResolutionSpec[T]) -> T: ...
 @overload
 def load(schema: type[T], sources: Sequence[SyncSource], *,
-         profile: str | None = None, plugins: tuple[object, ...] = ()) -> T: ...
+         profile: str | None = None, plugins: PluginList = ()) -> T: ...
 ```
 
 The convenience form builds a `ResolutionSpec` internally; both forms run the same resolver
@@ -324,7 +365,7 @@ error directing the caller to `load_async()`. There is no `ThreadPoolExecutor` +
 async def load_async(spec: ResolutionSpec[T]) -> T: ...
 @overload
 async def load_async(schema: type[T], sources: Sequence[Source], *,
-                     profile: str | None = None, plugins: tuple[object, ...] = ()) -> T: ...
+                     profile: str | None = None, plugins: PluginList = ()) -> T: ...
 ```
 
 Drives `AsyncSource`s natively (gathered on the running loop) and sync sources inline.
@@ -718,9 +759,14 @@ ConfiqError                     # base
 └── ConfigValidationError       # validation/coercion failed
 ```
 
-`MissingConfigError` and `ConfigValidationError` carry the dotted field path and the
-contributing source names (provenance) and surface them in the human-readable message, so a
-failure says where the offending value came from. Secret fields (`ConfigField(secret=True)`)
+Both `MissingConfigError` and `ConfigValidationError` hold a shared `ErrorContext(field_path,
+sources)` frozen dataclass — the diagnostic payload — and expose `err.field_path` and
+`err.sources` as forwarding properties so existing call sites require no changes. Errors
+surface the field path and contributing source names in the human-readable message, so a
+failure says where the offending value came from. `ErrorContext` is a standalone passable
+value: an error formatter or logger can accept it directly without the full exception object,
+and it is the single evolution point for future diagnostic extensions (provenance detail,
+secret-masking flags, structured output). (ADR 0025.) Secret fields (`ConfigField(secret=True)`)
 are masked in all error output on pydantic schemas.
 
 ---
