@@ -1,4 +1,4 @@
-"""Module defining Click and Typer sources for CLI-driven configuration."""
+"""ClickSource: reads explicitly-set Click parameters."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -29,30 +29,6 @@ class ClickSource(BaseSource):
         Raises ImportError if click is not installed.
         Raises RuntimeError if called outside a Click command invocation.
         """
-        ...
-
-    @property
-    def name(self) -> str: ...
-
-    def fetch(self) -> Mapping[str, Any]: ...
-
-
-class TyperSource(BaseSource):
-    """Reads explicitly-set Typer parameters (design_d §10.3).
-
-    Typer is Click underneath; this class delegates to ClickSource logic using
-    the Click Context available during Typer command execution.
-
-    Requires typer (confiq[cli]).
-    """
-
-    def __init__(
-        self,
-        *,
-        mode: MergeMode = MergeMode.OVERRIDE,
-        profile: str | None = None,
-    ) -> None:
-        """Raises ImportError if typer is not installed."""
         ...
 
     @property

@@ -22,7 +22,8 @@ from confiq._load import ResolutionSpec
 from confiq._load import load
 from confiq._load import load_async
 from confiq._schemaless import SchemalessConfig
-from confiq.cli._bind import ConfigBind
+from confiq._cli import ConfigBind
+from confiq._cli import options_from
 from confiq.source._argparse import ArgparseSource
 from confiq.source._env import EnvSource
 from confiq.source._file import FileSource
@@ -56,6 +57,7 @@ __all__: list[str] = [
     "LazyConfig",
     # CLI
     "ConfigBind",
+    "options_from",
     # schemaless
     "SchemalessConfig",
     # context override
