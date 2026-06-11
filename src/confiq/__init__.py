@@ -8,7 +8,13 @@ from confiq.exceptions import ConfigValidationError
 from confiq.exceptions import ConfiqError
 from confiq.exceptions import MissingConfigError
 from confiq.exceptions import SchemaError
+from confiq.exceptions import ErrorContext
 from confiq.exceptions import SourceError
+from confiq._merge import FetchedEntry
+from confiq._types import FieldAnnotations
+from confiq._types import MergeMode
+from confiq._types import PluginList
+from confiq._types import Provenance
 from confiq._field import ConfigField
 from confiq._hookspecs import hookimpl
 from confiq._lazy import LazyConfig
@@ -35,6 +41,7 @@ __all__: list[str] = [
     # errors
     "ConfiqError",
     "ConfigValidationError",
+    "ErrorContext",
     "MissingConfigError",
     "SchemaError",
     "SourceError",
@@ -60,4 +67,10 @@ __all__: list[str] = [
     "MemorySource",
     # plugin system
     "hookimpl",
+    # types
+    "MergeMode",
+    "FetchedEntry",
+    "Provenance",
+    "FieldAnnotations",
+    "PluginList",
 ]

@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from confiq._types import ListFillBehavior
+from confiq._types import MergeMode
 from confiq.loader._loader import Loader
 from confiq.source._base_source import BaseSource
 
@@ -23,7 +23,7 @@ class FileSource(BaseSource):
         path: str | Path,
         loader: Loader | None = None,
         *,
-        mode: ListFillBehavior = "override",
+        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None: ...
 

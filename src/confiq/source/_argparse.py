@@ -5,7 +5,7 @@ import argparse
 from collections.abc import Mapping
 from typing import Any
 
-from confiq._types import ListFillBehavior
+from confiq._types import MergeMode
 from confiq.source._base_source import BaseSource
 
 
@@ -23,7 +23,7 @@ class ArgparseSource(BaseSource):
         parser: argparse.ArgumentParser | None = None,
         bind_map: dict[str, str] | None = None,
         *,
-        mode: ListFillBehavior = "override",
+        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None: ...
 

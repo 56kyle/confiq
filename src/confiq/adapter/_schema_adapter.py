@@ -5,6 +5,7 @@ from typing import Mapping
 from typing_extensions import Protocol
 from typing_extensions import runtime_checkable
 
+from confiq._types import FieldAnnotations
 from confiq._types import T
 
 
@@ -12,7 +13,7 @@ from confiq._types import T
 class SchemaAdapter(Protocol[T]):
     """Defines an adapter for converting a configuration field into a given type."""
 
-    def field_metadata(self) -> Mapping[str, list[Any]]:
+    def field_metadata(self) -> FieldAnnotations:
         """Returns a mapping containing the Annotated metadata for this field."""
         ...
 

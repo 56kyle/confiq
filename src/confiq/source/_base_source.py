@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from confiq._types import ListFillBehavior
+from confiq._types import MergeMode
 
 
 class BaseSource:
@@ -14,7 +14,7 @@ class BaseSource:
     to declare name and fetch().
     """
 
-    mode: ListFillBehavior = "override"
+    mode: MergeMode = MergeMode.OVERRIDE
     profile: str | None = None
 
     @property

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from confiq._schemaless import SchemalessConfig
+from confiq._types import FieldAnnotations
 
 
 class SchemalessAdapter:
@@ -14,6 +15,6 @@ class SchemalessAdapter:
     validate() wraps the merged dict in SchemalessConfig.
     """
 
-    def field_metadata(self) -> Mapping[str, list[Any]]: ...
+    def field_metadata(self) -> FieldAnnotations: ...
 
     def validate(self, data: Mapping[str, Any]) -> SchemalessConfig: ...

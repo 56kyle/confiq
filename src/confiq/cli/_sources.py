@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from confiq._types import ListFillBehavior
+from confiq._types import MergeMode
 from confiq.source._base_source import BaseSource
 
 
@@ -21,7 +21,7 @@ class ClickSource(BaseSource):
     def __init__(
         self,
         *,
-        mode: ListFillBehavior = "override",
+        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None:
         """Capture the current Click Context at construction time.
@@ -49,7 +49,7 @@ class TyperSource(BaseSource):
     def __init__(
         self,
         *,
-        mode: ListFillBehavior = "override",
+        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None:
         """Raises ImportError if typer is not installed."""

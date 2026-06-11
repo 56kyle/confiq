@@ -7,6 +7,7 @@ from typing import Generic
 from typing import overload
 
 from confiq._schemaless import SchemalessConfig
+from confiq._types import PluginList
 from confiq._types import T
 from confiq.source._source import Source
 from confiq.source._source import SyncSource
@@ -19,7 +20,7 @@ class ResolutionSpec(Generic[T]):
     schema: type[T] | None
     sources: Sequence[Source]
     profile: str | None = None
-    plugins: tuple[object, ...] = ()
+    plugins: PluginList = ()
 
 
 @overload
@@ -30,7 +31,7 @@ def load(
     sources: Sequence[SyncSource],
     *,
     profile: str | None = None,
-    plugins: tuple[object, ...] = (),
+    plugins: PluginList = (),
 ) -> T: ...
 @overload
 def load(
@@ -38,14 +39,14 @@ def load(
     sources: Sequence[SyncSource],
     *,
     profile: str | None = None,
-    plugins: tuple[object, ...] = (),
+    plugins: PluginList = (),
 ) -> SchemalessConfig: ...
 def load(
     schema: type[T] | ResolutionSpec[T] | None,
     sources: Sequence[SyncSource] | None = None,
     *,
     profile: str | None = None,
-    plugins: tuple[object, ...] = (),
+    plugins: PluginList = (),
 ) -> T | SchemalessConfig:
     """Synchronous load entry point (design_d §7.2).
 
@@ -64,7 +65,7 @@ async def load_async(
     sources: Sequence[Source],
     *,
     profile: str | None = None,
-    plugins: tuple[object, ...] = (),
+    plugins: PluginList = (),
 ) -> T: ...
 @overload
 async def load_async(
@@ -72,14 +73,14 @@ async def load_async(
     sources: Sequence[Source],
     *,
     profile: str | None = None,
-    plugins: tuple[object, ...] = (),
+    plugins: PluginList = (),
 ) -> SchemalessConfig: ...
 async def load_async(
     schema: type[T] | ResolutionSpec[T] | None,
     sources: Sequence[Source] | None = None,
     *,
     profile: str | None = None,
-    plugins: tuple[object, ...] = (),
+    plugins: PluginList = (),
 ) -> T | SchemalessConfig:
     """Asynchronous load entry point (design_d §7.3).
 

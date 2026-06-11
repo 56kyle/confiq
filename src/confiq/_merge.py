@@ -6,20 +6,28 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from confiq._types import ListFillBehavior
+from confiq._types import MergeMode
+from confiq._types import Provenance
+
+
+@dataclass(frozen=True)
+class FetchedEntry:
+    name: str
+    data: Mapping[str, Any]
+    mode: MergeMode
 
 
 @dataclass(frozen=True)
 class ResolvedSnapshot:
     merged: dict[str, Any]
-    provenance: dict[str, str]
+    provenance: Provenance
 
 
 def deep_merge(
     base: Mapping[str, Any],
     overlay: Mapping[str, Any],
     *,
-    mode: ListFillBehavior = "override",
+    mode: MergeMode = MergeMode.OVERRIDE,
     source_name: str = "",
     provenance: dict[str, str] | None = None,
     path_prefix: str = "",
@@ -27,5 +35,5 @@ def deep_merge(
 
 
 def merge_sources(
-    fetched: Sequence[tuple[str, Mapping[str, Any], ListFillBehavior]],
+    fetched: Sequence[FetchedEntry],
 ) -> ResolvedSnapshot: ...

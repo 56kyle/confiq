@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from confiq._types import FieldAnnotations
 from confiq._types import T
 from confiq.adapter._schema_adapter import SchemaAdapter
 
@@ -20,6 +21,6 @@ class DataclassAdapter(SchemaAdapter[T]):
 
     def __init__(self, schema: type[T]) -> None: ...
 
-    def field_metadata(self) -> Mapping[str, list[Any]]: ...
+    def field_metadata(self) -> FieldAnnotations: ...
 
     def validate(self, data: Mapping[str, Any]) -> T: ...

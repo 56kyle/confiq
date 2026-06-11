@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 
 class ConfiqError(Exception): ...
@@ -14,21 +15,32 @@ class SourceError(ConfiqError):
 class SchemaError(ConfiqError): ...
 
 
-class MissingConfigError(ConfiqError):
+@dataclass(frozen=True)
+class ErrorContext:
     field_path: str
     sources: Sequence[str]
 
-    def __init__(self, field_path: str, sources: Sequence[str]) -> None: ...
+
+class MissingConfigError(ConfiqError):
+    def __init__(self, context: ErrorContext) -> None: ...
+
+    @property
+    def field_path(self) -> str: ...
+
+    @property
+    def sources(self) -> Sequence[str]: ...
 
 
 class ConfigValidationError(ConfiqError):
-    field_path: str
-    sources: Sequence[str]
-
     def __init__(
         self,
-        field_path: str,
-        sources: Sequence[str],
+        context: ErrorContext,
         *,
         original: Exception | None = None,
     ) -> None: ...
+
+    @property
+    def field_path(self) -> str: ...
+
+    @property
+    def sources(self) -> Sequence[str]: ...

@@ -6,14 +6,14 @@ from typing import Mapping
 from typing_extensions import Protocol
 from typing_extensions import runtime_checkable
 
-from confiq._types import ListFillBehavior
+from confiq._types import MergeMode
 
 
 @runtime_checkable
 class Source(Protocol):
     """Attribute-only base protocol for all configuration sources."""
     name: str
-    mode: ListFillBehavior
+    mode: MergeMode
     profile: str | None
 
 
