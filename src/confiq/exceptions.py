@@ -22,25 +22,50 @@ class ErrorContext:
 
 
 class MissingConfigError(ConfiqError):
-    def __init__(self, context: ErrorContext) -> None: ...
+    """Every field error in the failed load was a missing-field error (ADR 0029).
+
+    Raises ValueError if constructed with zero contexts.
+    """
+
+    def __init__(self, contexts: Sequence[ErrorContext]) -> None: ...
 
     @property
-    def field_path(self) -> str: ...
+    def contexts(self) -> tuple[ErrorContext, ...]: ...
 
     @property
-    def sources(self) -> Sequence[str]: ...
+    def field_path(self) -> str:
+        """Forwards to contexts[0].field_path (single-error convenience)."""
+        ...
+
+    @property
+    def sources(self) -> Sequence[str]:
+        """Forwards to contexts[0].sources (single-error convenience)."""
+        ...
 
 
 class ConfigValidationError(ConfiqError):
+    """Validation/coercion failed; carries every failure from the load (ADR 0029).
+
+    The message renders all contexts. Raises ValueError if constructed with zero
+    contexts.
+    """
+
     def __init__(
         self,
-        context: ErrorContext,
+        contexts: Sequence[ErrorContext],
         *,
         original: Exception | None = None,
     ) -> None: ...
 
     @property
-    def field_path(self) -> str: ...
+    def contexts(self) -> tuple[ErrorContext, ...]: ...
 
     @property
-    def sources(self) -> Sequence[str]: ...
+    def field_path(self) -> str:
+        """Forwards to contexts[0].field_path (single-error convenience)."""
+        ...
+
+    @property
+    def sources(self) -> Sequence[str]:
+        """Forwards to contexts[0].sources (single-error convenience)."""
+        ...
