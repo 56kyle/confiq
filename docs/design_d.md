@@ -71,24 +71,31 @@ decision rules — everything depends on the situation. Full rationale: ADR 0034
    moment — and every refusal names a remediation path in its message (a "no" without a
    "do this instead" is a bug). See §3 (secrets, ADR 0033), §7.2 (async rejection), §8.2
    (frozen-schema requirement).
+5. **Complexity is judged by inherence, not burden.** Complexity inherent to the problem
+   (including the language environment) is simply the work, and is paid willingly;
+   complexity that is an artifact of representation, false structure, or out-of-problem
+   users is what gets refused. Maintenance burden never decides whether a capability
+   belongs — at most, capacity sequences when essential work happens. Duplication pain
+   is a representation smell: refactor so the duplicates cannot drift, rather than
+   deleting the capability. (ADR 0035.)
 
 **Supporting habits:**
 
-5. **The library owns no mutable state.** `load()` returns an instance of the schema you
+6. **The library owns no mutable state.** `load()` returns an instance of the schema you
    declared; there is no ambient `confiq.config` and no library-owned singleton. Where
    ambient state exists (§8.3, §8.4), the application owns it knowingly.
-6. **Config is a fact, not a variable.** Immutability's value in the common path is
+7. **Config is a fact, not a variable.** Immutability's value in the common path is
    reasoning — test determinism, no aliasing surprises; on the live `ConfigHandle` path
    it additionally buys lock-free thread safety (§9.1). The only mutation is opt-in live
    reload.
-7. **Schema non-invasion.** confiq never appears in your domain types: no base class, no
+8. **Schema non-invasion.** confiq never appears in your domain types: no base class, no
    decorator; per-field metadata rides in `Annotated` as additive freight. (Which schema
    *kinds* are supported is a separate scope question — see §4.1.)
-8. **Type safety by default, opt-out on purpose.** The common path is fully typed with no
+9. **Type safety by default, opt-out on purpose.** The common path is fully typed with no
    `Any` on reads. Every relaxation is an explicit, named choice.
-9. **No DSL in the values.** No string interpolation, computed expressions, or object
-   instantiation inside config values. Computed values are the job of a *source*.
-10. **Boundaries are named contracts.** Multi-value pipeline boundaries get named types;
+10. **No DSL in the values.** No string interpolation, computed expressions, or object
+    instantiation inside config values. Computed values are the job of a *source*.
+11. **Boundaries are named contracts.** Multi-value pipeline boundaries get named types;
     domain variants get enums (ADR 0023, ADR 0024) — on legibility merits alone. That
     these forms also map cleanly to Rust is an acknowledged side benefit, not a driver
     (ADR 0021 as amended by ADR 0034).
@@ -532,7 +539,8 @@ so it shares the resolution surface with `load()` and cannot drift from it.
 
 For applications that want a literal `from myapp.config import config` bare name that still
 reflects CLI overrides, `confiq` offers an opt-in lazy proxy. It is the only construct that
-places a `confiq` object on the read path (§2 principle 1), and is deliberately marked as such.
+places a `confiq` object on the read path (§2 principle 6, the library owns no mutable
+state), and is deliberately marked as such.
 
 The singleton is one object — **`LazyConfig[T]`**, a lifecycle handle and a sibling to
 `ConfigHandle` (§8.2). It exposes the read surface and the lifecycle controls as named members,
@@ -653,10 +661,18 @@ call `reload()` synchronously (the `ReentrancyGuard` fast-fails).
 ### 9.4 Async entry points
 
 Async is a clean second entry point, not a colored twin of every method. `SyncSource` and
-`AsyncSource` share the attribute-only base `Source`; `load`/`reload` accept
+`AsyncSource` share the read-only base `Source`; `load`/`reload` accept
 `Sequence[SyncSource]`; `load_async`/`reload_async` accept `Sequence[Source]` (the shared
 base, covering both sync and async sources). Sync entry points reject async sources rather
 than bridging them.
+
+Implementation requirement: the resolver pipeline (§6.2) is **color-agnostic except at
+the fetch step** — profile filtering, merge, provenance, adapter resolution, coercion,
+and validation are the same functions on both paths, and the entry points are thin
+shells over them. Hand-maintained sync/async twins that can drift are accidental
+complexity of the representation, not of async support (ADR 0035); Python's two calling
+colors are the environment's essential complexity, accepted rather than litigated.
+(Whether async entry points ship at all, and where, remains the §14.2 open question.)
 
 ---
 
@@ -944,13 +960,27 @@ it, so the future conversation starts from the question rather than re-deriving 
    appears to cover the no-schema use case in one line. Criterion: is any real user
    *hard-blocked* without `schema=None` — not merely inconvenienced? If none surfaces,
    removal simplifies the §3 gradient, the adapter set, and the `load()` overloads.
-3. **Async source support: who is the user, and where does it live.** The strongest
-   case found is non-blocking `reload_async()` in a long-running async service — which
-   lives in the `[reload]` extra, not the core. Startup fetches are covered by
-   `asyncio.to_thread(load, ...)`; concurrent multi-source fetch could be threads inside
-   sync `load()`. Criterion: a concrete user need that threads cannot serve, and whether
-   it justifies core surface (`load_async`, `AsyncSource`) or should ride with
-   `[reload]`.
+3. **Async source support: a problem-boundary question.** (Reframed by ADR 0035 — the
+   prior cost framing is retired; maintenance burden is not an admissible factor.)
+   "The app is async" and "the config work is async" are different claims. Async *apps*
+   are already served: their config loading is sync-shaped (startup, often before the
+   loop exists), and sync `load()` is what they need. What remains is decided per
+   capability:
+   - **Async reload** is *essential* complexity of the live-reload sub-problem in async
+     services — a blocking re-fetch parks the event loop under traffic. If `[reload]`
+     serves those services, `reload_async` belongs to that sub-problem.
+   - **Async fetch** (`AsyncSource`, `load_async`) models a source shape — async-native
+     fetch code — that today exists mainly in custom in-house sources; the cloud SDKs
+     behind our built-ins are sync-first, so built-in `AsyncSource`s now would be false
+     structure (async clothing on blocking calls).
+
+   Criterion: does v1's problem include the async-reload sub-problem and/or the
+   async-native fetch shape? Known defects of the no-async workarounds, which count
+   against deferral on problem grounds: await-then-`MemorySource` corrupts provenance
+   (the value's origin records as "memory"); `asyncio.to_thread(handle.reload)` runs
+   subscribers off-loop. If async entry points ship, the shared-pipeline requirement
+   (§9.4) applies, and `load_async` running slow sync sources inline warrants
+   re-examination against the refusal principle (§2).
 4. **Resolution observability as first-class surface.** Provenance is already tracked
    (§6.4) and surfaced in errors; an `explain()`-style dump (merged snapshot +
    per-leaf source attribution, secrets masked) would attack the "breaks invisibly"
