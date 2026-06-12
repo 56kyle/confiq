@@ -47,7 +47,8 @@ arguments.
 ## Decision Outcome
 
 Chosen option: **Option A**, because it keeps `load()` a pure function of its arguments
-(principle 2), confines ambient behavior to the one construct that is ambient by design,
+(the §2 legibility principle: precedence is the list you pass), confines ambient
+behavior to the one construct that is ambient by design,
 and still delivers test isolation through environment scrubbing and explicit source-list
 construction.
 
@@ -112,7 +113,8 @@ so `EnvSource`/`FileSource` find nothing unless a test adds data explicitly. ADR
 
 - Good, because autouse isolation would also catch direct `load()` calls.
 - Bad, because `load(schema, sources)` would no longer mean what it says — a hidden
-  ContextVar could replace the caller's explicit list, violating principle 2 exactly
+  ContextVar could replace the caller's explicit list, violating the legibility
+  principle exactly
   where the library promises it most.
 - Bad, because it contradicts design_d §8.4/§11.3 and the skeleton, requiring a larger
   respecification than the contract it fixes.
