@@ -4,6 +4,13 @@ date: 2026-06-07
 ---
 # Rust-Port Readiness as a Design Principle
 
+> Amended by [ADR 0034](0034-design-ideals-clarification.md) (2026-06-12): the
+> port-readiness framing is retired as a design principle. The structured/enum practices
+> this ADR anchored (ADR 0023, ADR 0024) stand on their own legibility merits; port
+> alignment is an acknowledged side benefit, and future ADRs must not cite the port as a
+> decision driver. The layer-separation and non-commitment rules below remain good
+> guidance if a port is ever actually pursued.
+
 ## Context and Problem Statement
 
 confiq has a speculative future: a maturin/PyO3 Rust core with a thin Python
