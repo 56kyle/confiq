@@ -4,14 +4,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 from typing import Generic
-from typing import TYPE_CHECKING
 
 from confiq._load import ResolutionSpec
 from confiq._types import T
-
-
-if TYPE_CHECKING:
-    import blinker
 
 
 class ConfigHandle(Generic[T]):
