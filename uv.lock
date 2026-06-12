@@ -409,6 +409,15 @@ wheels = [
 ]
 
 [[package]]
+name = "blinker"
+version = "1.9.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/28/9b3f50ce0e048515135495f198351908d99540d69bfdc8c1d15b73dc55ce/blinker-1.9.0.tar.gz", hash = "sha256:b4ce2265a7abece45e7cc896e98dbebe6cead56bcf805a3d23136d145f5445bf", size = 22460, upload-time = "2024-11-08T17:25:47.436Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/cb/f2ad4230dc2eb1a74edf38f1a38b9b52277f75bef262d8908e60d957e13c/blinker-1.9.0-py3-none-any.whl", hash = "sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc", size = 8458, upload-time = "2024-11-08T17:25:46.184Z" },
+]
+
+[[package]]
 name = "boolean-py"
 version = "5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -730,33 +739,33 @@ name = "confiq"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "fsspec" },
-    { name = "loguru" },
-    { name = "platformdirs" },
     { name = "pluggy" },
     { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "typer" },
     { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
 adl = [
     { name = "adlfs" },
+    { name = "fsspec" },
 ]
 all = [
     { name = "adlfs" },
     { name = "azure-identity" },
     { name = "azure-keyvault-secrets" },
+    { name = "blinker" },
     { name = "boto3" },
     { name = "click" },
+    { name = "fsspec" },
     { name = "gcsfs" },
     { name = "google-cloud-secret-manager" },
     { name = "hvac" },
     { name = "py-consul" },
+    { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "s3fs" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "typer" },
 ]
 aws = [
     { name = "boto3" },
@@ -765,8 +774,9 @@ azure = [
     { name = "azure-identity" },
     { name = "azure-keyvault-secrets" },
 ]
-click = [
+cli = [
     { name = "click" },
+    { name = "typer" },
 ]
 common = [
     { name = "pyyaml" },
@@ -775,13 +785,24 @@ common = [
 consul = [
     { name = "py-consul" },
 ]
+dotenv = [
+    { name = "python-dotenv" },
+]
 gcp = [
     { name = "google-cloud-secret-manager" },
 ]
 gcs = [
+    { name = "fsspec" },
     { name = "gcsfs" },
 ]
+reload = [
+    { name = "blinker" },
+]
+remote = [
+    { name = "fsspec" },
+]
 s3 = [
+    { name = "fsspec" },
     { name = "s3fs" },
 ]
 toml = [
@@ -798,6 +819,7 @@ yaml = [
 dev = [
     { name = "bandit" },
     { name = "basedpyright" },
+    { name = "blinker" },
     { name = "commitizen" },
     { name = "nox" },
     { name = "pip-audit" },
@@ -821,7 +843,6 @@ docs = [
     { name = "sphinx-autodoc-typehints", version = "3.10.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "sphinx-copybutton" },
     { name = "sphinx-tabs" },
-    { name = "sphinxcontrib-typer" },
 ]
 
 [package.metadata]
@@ -829,32 +850,35 @@ requires-dist = [
     { name = "adlfs", marker = "extra == 'adl'", specifier = ">=2024.7.0" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.15" },
     { name = "azure-keyvault-secrets", marker = "extra == 'azure'", specifier = ">=4.7" },
+    { name = "blinker", marker = "extra == 'reload'", specifier = ">=1.7" },
     { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.34" },
-    { name = "click", marker = "extra == 'click'", specifier = ">=8.1" },
-    { name = "confiq", extras = ["yaml", "toml", "watch"], marker = "extra == 'common'" },
-    { name = "confiq", extras = ["yaml", "toml", "watch", "click", "aws", "gcp", "azure", "vault", "consul", "s3", "gcs", "adl"], marker = "extra == 'all'" },
-    { name = "fsspec", specifier = ">=2026.4.0" },
+    { name = "click", marker = "extra == 'cli'", specifier = ">=8.1" },
+    { name = "confiq", extras = ["remote"], marker = "extra == 'adl'" },
+    { name = "confiq", extras = ["remote"], marker = "extra == 'gcs'" },
+    { name = "confiq", extras = ["remote"], marker = "extra == 's3'" },
+    { name = "confiq", extras = ["yaml", "toml"], marker = "extra == 'common'" },
+    { name = "confiq", extras = ["yaml", "toml", "cli", "dotenv", "remote", "reload", "aws", "gcp", "azure", "vault", "consul", "s3", "gcs", "adl"], marker = "extra == 'all'" },
+    { name = "fsspec", marker = "extra == 'remote'", specifier = ">=2026.4.0" },
     { name = "gcsfs", marker = "extra == 'gcs'", specifier = ">=2026.4.0" },
     { name = "google-cloud-secret-manager", marker = "extra == 'gcp'", specifier = ">=2.18" },
     { name = "hvac", marker = "extra == 'vault'", specifier = ">=2.0" },
-    { name = "loguru", specifier = ">=0.7.3" },
-    { name = "platformdirs", specifier = ">=4.3.8" },
     { name = "pluggy", specifier = ">=1.5" },
     { name = "py-consul", marker = "extra == 'consul'", specifier = ">=1.7" },
     { name = "pydantic", specifier = ">=2.5" },
-    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "python-dotenv", marker = "extra == 'dotenv'", specifier = ">=1.2.2" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0" },
     { name = "s3fs", marker = "extra == 's3'", specifier = ">=2026.4.0" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'toml'", specifier = ">=2.0" },
-    { name = "typer", specifier = ">=0.15.4" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.15.4" },
     { name = "typing-extensions", specifier = ">=4.13.2" },
 ]
-provides-extras = ["yaml", "toml", "click", "aws", "gcp", "azure", "vault", "consul", "s3", "gcs", "adl", "common", "all"]
+provides-extras = ["yaml", "toml", "cli", "dotenv", "remote", "reload", "aws", "gcp", "azure", "vault", "consul", "s3", "gcs", "adl", "common", "all"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "bandit", specifier = ">=1.8.3" },
     { name = "basedpyright", specifier = ">=1.34.0" },
+    { name = "blinker", specifier = ">=1.7" },
     { name = "commitizen", specifier = ">=4.7.0" },
     { name = "nox", specifier = ">=2025.5.1" },
     { name = "pip-audit", specifier = ">=2.9.0" },
@@ -872,7 +896,6 @@ docs = [
     { name = "sphinx-autodoc-typehints", specifier = ">=2.3.0" },
     { name = "sphinx-copybutton", specifier = ">=0.5.2" },
     { name = "sphinx-tabs", specifier = ">=3.4.7" },
-    { name = "sphinxcontrib-typer", specifier = ">=0.5.1" },
 ]
 
 [[package]]
@@ -1716,19 +1739,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/40/71/d89bb0e71b1415453980fd32315f2a037aad9f7f70f695c7cec7035feb13/license_expression-30.4.4.tar.gz", hash = "sha256:73448f0aacd8d0808895bdc4b2c8e01a8d67646e4188f887375398c761f340fd", size = 186402, upload-time = "2025-07-22T11:13:32.17Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/af/40/791891d4c0c4dab4c5e187c17261cedc26285fd41541577f900470a45a4d/license_expression-30.4.4-py3-none-any.whl", hash = "sha256:421788fdcadb41f049d2dc934ce666626265aeccefddd25e162a26f23bcbf8a4", size = 120615, upload-time = "2025-07-22T11:13:31.217Z" },
-]
-
-[[package]]
-name = "loguru"
-version = "0.7.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
-    { name = "win32-setctime", marker = "sys_platform == 'win32'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/05/a1dae3dffd1116099471c643b8924f5aa6524411dc6c63fdae648c4f1aca/loguru-0.7.3.tar.gz", hash = "sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6", size = 63559, upload-time = "2024-12-06T11:20:56.608Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl", hash = "sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c", size = 61595, upload-time = "2024-12-06T11:20:54.538Z" },
 ]
 
 [[package]]
@@ -3284,21 +3294,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sphinxcontrib-typer"
-version = "0.8.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "sphinx", version = "8.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "sphinx", version = "9.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "sphinx", version = "9.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "typer" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ff/17/7e07799e1df369c170e747f8866b80563ff88d385f14304f8891a9f0fe4e/sphinxcontrib_typer-0.8.1.tar.gz", hash = "sha256:223016757b3ab1995971fce048ed5e939b4fd45ca0c255e320e0f87d04dbf9ef", size = 228669, upload-time = "2026-03-06T00:43:01.459Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ed/30/715e975d6e0b47979d37dab9fca05d8a178e45384d6f44fbf7ec76368220/sphinxcontrib_typer-0.8.1-py3-none-any.whl", hash = "sha256:869a69caf367af94e4acf2cfd62ce8b87faa02831c3d68c5fb1c96cc6b5dac2a", size = 14711, upload-time = "2026-03-06T00:42:59.781Z" },
-]
-
-[[package]]
 name = "starlette"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3668,15 +3663,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a5/8f/aea9c71cc92bf9b6cc0f7f70df8f0b420636b6c96ef4feee1e16f80f75dd/websockets-16.0-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0298d07ee155e2e9fda5be8a9042200dd2e3bb0b8a38482156576f863a9d457c", size = 176968, upload-time = "2026-01-10T09:23:41.031Z" },
     { url = "https://files.pythonhosted.org/packages/9a/3f/f70e03f40ffc9a30d817eef7da1be72ee4956ba8d7255c399a01b135902a/websockets-16.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:a653aea902e0324b52f1613332ddf50b00c06fdaf7e92624fbf8c77c78fa5767", size = 178735, upload-time = "2026-01-10T09:23:42.259Z" },
     { url = "https://files.pythonhosted.org/packages/6f/28/258ebab549c2bf3e64d2b0217b973467394a9cea8c42f70418ca2c5d0d2e/websockets-16.0-py3-none-any.whl", hash = "sha256:1637db62fad1dc833276dded54215f2c7fa46912301a24bd94d45d46a011ceec", size = 171598, upload-time = "2026-01-10T09:23:45.395Z" },
-]
-
-[[package]]
-name = "win32-setctime"
-version = "1.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
 ]
 
 [[package]]

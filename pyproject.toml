@@ -24,33 +24,32 @@ classifiers = [
     "Development Status :: 1 - Planning"
 ]
 dependencies = [
-    "fsspec>=2026.4.0",
-    "loguru>=0.7.3",
-    "platformdirs>=4.3.8",
     "pluggy>=1.5",
     "pydantic>=2.5",
-    "python-dotenv>=1.2.2",
-    "typer>=0.15.4",
     "typing-extensions>=4.13.2",
 ]
 
 [project.optional-dependencies]
 yaml   = ["pyyaml>=6.0"]
 toml   = ["tomli>=2.0; python_version<'3.11'"]
-click  = ["click>=8.1"]
+cli    = ["click>=8.1", "typer>=0.15.4"]
+dotenv = ["python-dotenv>=1.2.2"]
+remote = ["fsspec>=2026.4.0"]
+reload = ["blinker>=1.7"]
 aws    = ["boto3>=1.34"]
 gcp    = ["google-cloud-secret-manager>=2.18"]
 azure  = ["azure-identity>=1.15", "azure-keyvault-secrets>=4.7"]
 vault  = ["hvac>=2.0"]
 consul = ["py-consul>=1.7"]
-s3     = ["s3fs>=2026.4.0"]
-gcs    = ["gcsfs>=2026.4.0"]
-adl    = ["adlfs>=2024.7.0"]
-common = ["confiq[yaml,toml,watch]"]
-all    = ["confiq[yaml,toml,watch,click,aws,gcp,azure,vault,consul,s3,gcs,adl]"]
+s3     = ["confiq[remote]", "s3fs>=2026.4.0"]
+gcs    = ["confiq[remote]", "gcsfs>=2026.4.0"]
+adl    = ["confiq[remote]", "adlfs>=2024.7.0"]
+common = ["confiq[yaml,toml]"]
+all    = ["confiq[yaml,toml,cli,dotenv,remote,reload,aws,gcp,azure,vault,consul,s3,gcs,adl]"]
 
 [dependency-groups]
 dev = [
+    "blinker>=1.7",
     "commitizen>=4.7.0",
     "nox>=2025.5.1",
     "pre-commit>=4.2.0",
@@ -70,14 +69,7 @@ docs = [
     "sphinx-autodoc-typehints>=2.3.0",
     "sphinx-copybutton>=0.5.2",
     "sphinx-tabs>=3.4.7",
-    "sphinxcontrib-typer>=0.5.1",
 ]
-
-[project.entry-points."confiq.sources"]
-file = "confiq.source._file:FileSource"
-env  = "confiq.source._env:EnvSource"
-
-[project.entry-points.confiq]
 
 [project.urls]
 Homepage = "https://github.com/56kyle/confiq"
