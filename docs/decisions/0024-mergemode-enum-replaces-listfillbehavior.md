@@ -68,6 +68,23 @@ class MergeMode(enum.StrEnum):
     FILL = "fill"
 ```
 
+**Python 3.10 floor amendment (2026-06-12).** `enum.StrEnum` requires Python 3.11; on
+the project's 3.10 floor the implementation is a `(str, enum.Enum)` mixin. The mixin is
+*not* semantically identical: `str(member)` and f-string formatting yield
+`"MergeMode.OVERRIDE"` for the mixin but `"override"` for `StrEnum`. The implementation
+therefore sets `__str__ = str.__str__` on the mixin to restore StrEnum-equivalent
+formatting:
+
+```python
+class MergeMode(str, enum.Enum):
+    OVERRIDE = "override"
+    FILL = "fill"
+
+    __str__ = str.__str__
+```
+
+If the floor is later raised to 3.11+, the class reverts to plain `enum.StrEnum`.
+
 All previous `mode: ListFillBehavior` annotations become `mode: MergeMode`.
 `ResolutionSpec`, `Source`, `SyncSource`, `AsyncSource`, and `FetchedEntry`
 (ADR 0023) all use `MergeMode`.

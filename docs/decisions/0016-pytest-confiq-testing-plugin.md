@@ -4,6 +4,13 @@ date: 2026-06-05
 ---
 # First-Class Testing via a `pytest-confiq` Companion Plugin
 
+> Amended by [ADR 0028](0028-context-override-data-overlay-proxy-only.md):
+> `context.override()` takes a **data mapping** read only by the LazyConfig proxy, not a
+> source list read by `load()`; the autouse isolation fixture works by scrubbing
+> `os.environ` (Jail-style) rather than intercepting `load()`, and layering helpers are
+> sugar over the pure `spec_with()` helper. The packaging and fixture-surface decisions
+> below stand.
+
 ## Context and Problem Statement
 
 design_d §11.

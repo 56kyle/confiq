@@ -4,6 +4,12 @@ date: 2026-06-06
 ---
 # LazyConfig: Opt-In Lazy Ambient Proxy
 
+> Amended by [ADR 0031](0031-lazyconfig-snapshot-overlay.md): the proxy's
+> override-awareness is specified as a *snapshot overlay* — an active
+> `context.override()` mapping is deep-merged over the bound base and validated into a
+> fresh cached `T`, so nested access (`config.database.host`) sees overrides and every
+> read stays typed. First-hop attribute substitution is rejected.
+
 ## Context and Problem Statement
 
 design_d §8.3–8.4.

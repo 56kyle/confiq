@@ -4,7 +4,14 @@ Date: 2026-06-02
 
 ## Status
 
-Accepted
+Superseded by [ADR 0027](0027-cli-name-path-convention.md)
+
+Specifically superseded: the opt-in participation model (only `ConfigBind`-marked
+parameters enter the merge — design_d §10.2 and ADR 0027 make convention binding the
+opt-out default) and `TyperSource` as a module-level alias of `ClickSource` (it is its
+own class sharing the Click-context mechanism). The explicit-set detection mechanics
+(`get_parameter_source()` / sentinel comparison) and the removal of `CliSource` /
+`ConfigField.cli` carry forward unchanged.
 
 ## Context
 

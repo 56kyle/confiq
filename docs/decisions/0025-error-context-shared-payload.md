@@ -4,6 +4,10 @@ date: 2026-06-07
 ---
 # `ErrorContext` Extracts the Shared Diagnostic Payload from Config Errors
 
+> Amended by [ADR 0029](0029-error-aggregation-multi-context.md): both error classes
+> hold `contexts: tuple[ErrorContext, ...]` (pydantic reports all failures in one
+> raise); the `field_path`/`sources` forwarding properties forward to `contexts[0]`.
+
 ## Context and Problem Statement
 
 `MissingConfigError` and `ConfigValidationError` both carry:
