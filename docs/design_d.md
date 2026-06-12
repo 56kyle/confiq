@@ -15,6 +15,11 @@ choices are marked **(provisional)** and collected in §14; everything else is s
 `confiq` reconciles three things that are normally wired together by hand and break
 independently: **configuration**, the **command line**, and the **test suite**.
 
+Stated sharply: when an application has a typed config schema and an existing CLI, a
+single value can end up declared in up to **three places** — the schema default, the CLI
+option default, and the test fixture — and the wiring between those places is
+hand-maintained state that breaks invisibly.
+
 The motivating pain is concrete: building an application with `pydantic-settings` and a CLI
 framework means maintaining the state relationship between config and CLI by hand, and then
 fighting that same global state in `pytest` — rebuilding fixtures, leaking environment
@@ -26,30 +31,67 @@ typed value; the CLI is just another source feeding that computation; and becaus
 is a plain value with no global identity, testing it means constructing values, not mutating
 and restoring shared state.
 
+Four solution criteria fall out of the problem, and every capability in this document
+should be traceable to at least one of them:
+
+1. **One declaration point.** A value's default lives in the schema and nowhere else.
+2. **The CLI folds in without double-declaration.** An existing command contributes
+   exactly what the user explicitly set.
+3. **Tests construct values.** No mutate-and-restore of shared state.
+4. **Every value's origin is visible.** When something is wrong, the resolution says
+   which source supplied what.
+
 ---
 
 ## 2. Design principles
 
-1. **Configuration is a value, not an object with identity.** `load()` returns an instance
-   of the schema you declared. There is no ambient `confiq.config` and no library-owned
-   singleton.
-2. **Precedence is data, not magic.** The order in which sources win is the order of the
-   list you pass to `load()`. No hidden priority, no implicit environment discovery.
-3. **The schema is yours.** No base class is required. A schema may be a pydantic
-   `BaseModel`, a pydantic dataclass, a stdlib dataclass, a `TypedDict`, or nothing
-   (schemaless).
-4. **Type safety by default, opt-out on purpose.** The common path is fully typed with no
+The principles are ranked: an identity, then governing considerations, then supporting
+habits in their service. They are judgment guides for arguing specific cases, not
+decision rules — everything depends on the situation. Full rationale: ADR 0034.
+
+**The identity:**
+
+1. **Reconciliation comes first.** confiq exists to reconcile config, CLI, and tests
+   (§1). The principles below are good habits in service of that; a capability serving
+   none of the three corners must earn its place explicitly.
+
+**Governing considerations:**
+
+2. **User experience is the most important factor — weighed by severity, case by case.**
+   Writing, debugging, and testing are different user moments; when they conflict, the
+   worse the potential failure, the more the failure moment dominates. UX is never an
+   excuse for poor development practice.
+3. **Legibility: magic is permitted when auditable.** The enemy is invisible coupling —
+   an effect with no traceable cause. Deterministic, documented, inspectable convention
+   (e.g. name binding validated against the path table, loud on ambiguity) is acceptable;
+   hidden priority and ambient mutation are not. Precedence is the list you pass to
+   `load()`; provenance (§6.4) is this principle made executable.
+4. **Refusal over degradation.** Never silently provide a weaker guarantee than the user
+   believes they have. Where a promise cannot be kept, fail loudly at the earliest
+   moment — and every refusal names a remediation path in its message (a "no" without a
+   "do this instead" is a bug). See §3 (secrets, ADR 0033), §7.2 (async rejection), §8.2
+   (frozen-schema requirement).
+
+**Supporting habits:**
+
+5. **The library owns no mutable state.** `load()` returns an instance of the schema you
+   declared; there is no ambient `confiq.config` and no library-owned singleton. Where
+   ambient state exists (§8.3, §8.4), the application owns it knowingly.
+6. **Config is a fact, not a variable.** Immutability's value in the common path is
+   reasoning — test determinism, no aliasing surprises; on the live `ConfigHandle` path
+   it additionally buys lock-free thread safety (§9.1). The only mutation is opt-in live
+   reload.
+7. **Schema non-invasion.** confiq never appears in your domain types: no base class, no
+   decorator; per-field metadata rides in `Annotated` as additive freight. (Which schema
+   *kinds* are supported is a separate scope question — see §4.1.)
+8. **Type safety by default, opt-out on purpose.** The common path is fully typed with no
    `Any` on reads. Every relaxation is an explicit, named choice.
-5. **Immutability is the basis of safety.** Thread safety falls out of returning an
-   immutable value; the only mutation is opt-in live reload.
-6. **No DSL in the values.** No string interpolation, computed expressions, or object
+9. **No DSL in the values.** No string interpolation, computed expressions, or object
    instantiation inside config values. Computed values are the job of a *source*.
-7. **Rust-port readiness is a tiebreaker, not a goal.** When two Python designs are otherwise
-   equivalent, resolve toward structured or enum forms — they map cleanly to Rust structs and
-   enums with no ergonomic cost today. The public Python API stays Python-shaped; a PyO3
-   binding layer is the right reconciliation point if a port ever happens. No decision is made
-   *because* of a port; the frame is "no worse for Python callers, easier to port if we ever
-   do." (ADR 0021.)
+10. **Boundaries are named contracts.** Multi-value pipeline boundaries get named types;
+    domain variants get enums (ADR 0023, ADR 0024) — on legibility merits alone. That
+    these forms also map cleanly to Rust is an acknowledged side benefit, not a driver
+    (ADR 0021 as amended by ADR 0034).
 
 ---
 
@@ -68,19 +110,26 @@ Because the returned type is the one you declared, `confiq`'s guarantees form an
 | `BaseModel` (default) | attribute | mutable | full | full |
 | `@dataclass(frozen=True)` | attribute | immutable | invasive¹ | via `TypeAdapter` |
 | `@dataclass` | attribute | mutable | invasive¹ | via `TypeAdapter` |
-| `TypedDict` | subscript | mutable dict | none² | already a dict |
-| schemaless | subscript | read-only `Mapping` | none | none |
+| `TypedDict` | subscript | mutable dict | refused at load² | already a dict |
+| schemaless | subscript | read-only `Mapping` | n/a³ | none |
 
 ¹ Masking a secret on a stdlib dataclass requires `confiq` to generate a custom `__repr__`.
-² A `TypedDict` resolves to a plain dict with nowhere to hang a masked repr.
+² A `TypedDict` resolves to a plain dict with nowhere to hang a masked repr — so
+  `ConfigField(secret=True)` on a `TypedDict` field raises `SchemaError` at load rather
+  than silently not masking. A declared secret is a guarantee or an error, never a
+  decoration. (ADR 0033.)
+³ Schemaless mode has no fields and therefore no `ConfigField` at all; the question
+  cannot arise.
 
-Two consequences are stated loudly, not buried:
+Three consequences are stated loudly, not buried:
 
 - **The immutability pillar holds only when the schema is frozen.** Frozen pydantic is the
   safe default; a non-frozen dataclass yielding mutable config is a legitimate informed
   choice. The lock-free-read guarantee in §9 applies only to frozen schemas.
-- **Richer per-field features — secret masking in particular — are pydantic-strong** and
-  degrade on other schema types.
+- **Richer per-field features are pydantic-strong** and degrade on other schema types.
+- **The gradient covers capabilities, not requested guarantees.** A capability the user
+  did not ask for may be absent; a guarantee the user *declared* (`secret=True`) is
+  honored or refused at load — never silently dropped (§2 principle 4, ADR 0033).
 
 The honest pitch: bring any structure; frozen pydantic is where every guarantee is on, and
 each step away trades one named guarantee for one named convenience, visibly.
@@ -269,11 +318,21 @@ mixin with `__str__ = str.__str__`, which restores StrEnum-equivalent `str()`/f-
 formatting (`"override"`, not `"MergeMode.OVERRIDE"`). (ADR 0024, amended.)
 
 `MergeMode.OVERRIDE` (default) is normal precedence — the source clobbers prior values for
-keys it supplies. `MergeMode.FILL` contributes only keys *not already supplied* by a
-higher-precedence source: a defaults layer that cannot accidentally overwrite real values.
-`StrEnum` equality (`MergeMode.OVERRIDE == "override"`) keeps serialised configs readable
-without conversion. Call sites pass `MergeMode.OVERRIDE` / `MergeMode.FILL`; bare strings
-are a type error. (ADR 0024 — replaces the former `ListFillBehavior` literal.)
+keys it supplies. `MergeMode.FILL` makes a source contribute only keys that are still
+absent when its turn in the low→high merge arrives (§6.2 step 3): it never overwrites a
+lower-precedence value, and higher-precedence `OVERRIDE` sources can still overwrite it.
+Net effect: a FILL value survives only where no other source supplies the key — a
+fallback layer that cannot accidentally overwrite real values, regardless of where it
+sits in the list. `StrEnum` equality (`MergeMode.OVERRIDE == "override"`) keeps
+serialised configs readable without conversion. Call sites pass `MergeMode.OVERRIDE` /
+`MergeMode.FILL`; bare strings are a type error. (ADR 0024 — replaces the former
+`ListFillBehavior` literal.)
+
+Stated honestly: that net effect means a FILL source at *any* position is equivalent to
+the same source placed at the bottom of the list with `OVERRIDE`. FILL adds no
+expressive power over list position; its value is **enforced intent** — a fallback that
+cannot be ruined by reordering. Whether that guard rail justifies a second merge mode is
+an open question (§14).
 
 ### 5.6 `profile`
 
@@ -833,11 +892,26 @@ changes. `ErrorContext` is a standalone passable value: an error formatter or lo
 accept it directly without the full exception object, and it is the single evolution
 point for future diagnostic extensions (provenance detail, secret-masking flags,
 structured output). (ADR 0025, amended by ADR 0029.) Secret fields
-(`ConfigField(secret=True)`) are masked in all error output on pydantic schemas.
+(`ConfigField(secret=True)`) are masked in all error output wherever field metadata
+exists.
+
+Two obligations apply to every error the library raises:
+
+- **A declared guarantee is honored or refused, never silently dropped.**
+  `ConfigField(secret=True)` on a schema kind that cannot honor masking raises
+  `SchemaError` at load, naming the field path, the schema kind, and the fix — use a
+  pydantic model or dataclass for that structure, or remove the flag. (§3, ADR 0033.)
+- **Every refusal names a remediation path.** A "no" without a "do this instead" is a
+  bug against the UX principle (§2). The exemplar is `load()` rejecting an async
+  source while pointing the caller to `load_async()` (§7.2); the same standard applies
+  to the frozen-schema requirement (§8.2), the unbound proxy read (§8.4), the
+  CLI-binding ambiguity error (§10.2), and the secrets refusal above.
 
 ---
 
-## 14. Provisional decisions
+## 14. Provisional decisions and open questions
+
+### 14.1 Provisional signature decisions
 
 These signature-level points were not separately deliberated; the conservative call is
 recorded here and is easy to override. (The earlier `plugins`-on-handle and `loop`-parameter
@@ -853,6 +927,35 @@ parameter is gone (§9.3) — so they are no longer open.)
    suits weak-referenced blinker subscribers better than returning `fn` for decorator use.
    Open question: is the old value needed, and should the return be a disconnect handle or the
    function itself.
+
+### 14.2 Open scope questions
+
+Deliberately undecided (a culling pass was declined; these resolve through discussion as
+implementation reaches them — ADR 0034). Each is listed with the criterion that decides
+it, so the future conversation starts from the question rather than re-deriving it.
+
+1. **`MergeMode.FILL`: keep or remove.** FILL is position-redundant (§5.5): a FILL
+   source anywhere is equivalent to the same source at the bottom of the list with
+   `OVERRIDE`. Its only non-redundant value is enforced intent — a fallback that cannot
+   be ruined by list reordering. Criterion: is that guard rail worth a permanent second
+   merge mode in the merge logic and provenance bookkeeping? Decide when implementation
+   reaches the merge step (amend ADR 0024 either way).
+2. **Schemaless mode: keep or remove.** An empty `BaseModel` with `extra="allow"`
+   appears to cover the no-schema use case in one line. Criterion: is any real user
+   *hard-blocked* without `schema=None` — not merely inconvenienced? If none surfaces,
+   removal simplifies the §3 gradient, the adapter set, and the `load()` overloads.
+3. **Async source support: who is the user, and where does it live.** The strongest
+   case found is non-blocking `reload_async()` in a long-running async service — which
+   lives in the `[reload]` extra, not the core. Startup fetches are covered by
+   `asyncio.to_thread(load, ...)`; concurrent multi-source fetch could be threads inside
+   sync `load()`. Criterion: a concrete user need that threads cannot serve, and whether
+   it justifies core surface (`load_async`, `AsyncSource`) or should ride with
+   `[reload]`.
+4. **Resolution observability as first-class surface.** Provenance is already tracked
+   (§6.4) and surfaced in errors; an `explain()`-style dump (merged snapshot +
+   per-leaf source attribution, secrets masked) would attack the "breaks invisibly"
+   problem directly on the success path, not just on failure. Candidate feature — needs
+   its own ADR, including where it lives (API, CLI, or both).
 
 ---
 
@@ -873,3 +976,6 @@ Deliberate refusals, recorded so they do not creep back in:
 - **No background machinery for reload.** Reload runs subscribers inline on the thread that
   called `reload()` / the loop that awaited `reload_async()`; there is no daemon thread and no
   stored event loop. Live reload is also not in the core — it lives behind the `[reload]` extra.
+- **No breadth for its own sake.** Every public concept taxes every user who must read
+  about it to rule it out. A capability serving users outside the §1 triangle must earn
+  its concept cost explicitly — an orientation, not a rule (§2, ADR 0034).
