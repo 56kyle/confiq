@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 from types import TracebackType
+
 from typing_extensions import Self
 
 

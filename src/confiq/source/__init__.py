@@ -15,8 +15,8 @@ from confiq.source._typer import TyperSource
 
 
 __all__: list[str] = [
-    "AsyncSource",
     "ArgparseSource",
+    "AsyncSource",
     "BaseSource",
     "ClickSource",
     "DotenvSource",
