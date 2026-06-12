@@ -617,7 +617,7 @@ def main(
 ### 10.4 Opt-in generator
 
 For applications that want a single declaration site (add a field → get a flag),
-`confiq.cli.options_from(schema)` emits options from the schema. Because `confiq` controls the
+`options_from(schema)` emits options from the schema. Because `confiq` controls the
 generated options, it sets their defaults to the unset sentinel automatically, so the
 "no duplicated default" property comes for free on this path. Both paths obey the same
 name↔path convention — the consumer path runs it backward (parameter → path), the generator
