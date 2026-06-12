@@ -4,10 +4,9 @@
 > value computed from an explicit, ordered list of sources — and treats the command line
 > and the test suite as first-class parts of that computation rather than afterthoughts.
 
-This is a complete, standalone specification. It supersedes `design_c.md`. Companion
-documents: `confiq_architecture.md` (narrative) and the design-axes record. A small number
-of signature-level choices are marked **(provisional)** and collected in §14; everything
-else is settled.
+This is a complete, standalone specification. It supersedes `design_c.md`. Decision
+rationale lives in the ADRs under `docs/decisions/`. A small number of signature-level
+choices are marked **(provisional)** and collected in §14; everything else is settled.
 
 ---
 
@@ -132,15 +131,28 @@ It is the load-bearing wall behind multi-schema support.
 ```python
 class SchemaAdapter(Protocol[T]):
     def field_metadata(self) -> FieldAnnotations: ...
-        # field name → the Annotated *extras* for that field (incl. ConfigField). Not the
+        # dotted path → the Annotated *extras* for that field (incl. ConfigField). Not the
         # bare type — callers that need the type hold the schema class directly.
         # FieldAnnotations is a TypeAlias for Mapping[str, list[Any]].
     def validate(self, data: Mapping[str, Any]) -> T: ...
         # validate/coerce the merged mapping into an instance of the declared type.
 ```
 
+`field_metadata` returns the schema's **path table**: one entry per fixed dotted path
+reachable from the root (`"database"`, `"database.host"`, `"database.password"`, …),
+with adapters recursing through nested models, dataclasses, and `TypedDict`s. This is
+the canonical key space shared by provenance (§6.4), parser application (§6.2 step 5),
+secret masking, `ConfigField.env` overrides, CLI binding (§10.2), and error field paths
+(§13). Recursion covers fixed paths only — elements of `list[Model]` fields and union
+branches contribute no per-element paths. (ADR 0026.)
+
 Adapters are resolved through a pluggy hook (`confiq_get_schema_adapter`), so new schema
-kinds can be added without touching the core.
+kinds can be added without touching the core. Each built-in adapter claims only schemas
+it is definitively correct for (in particular, the dataclass adapter declines pydantic
+dataclasses, which belong to the pydantic adapter), so correctness never depends on call
+order; plugins from `ResolutionSpec.plugins` are registered last and therefore — under
+pluggy's LIFO call order — win `firstresult` over the built-ins, which is the documented
+override guarantee. An unclaimed schema raises `SchemaError`. (ADR 0030.)
 
 ### 4.4 Metadata reading is per-adapter
 
@@ -178,16 +190,24 @@ A source is *where* configuration comes from. The protocol hierarchy has three l
 ```python
 @runtime_checkable
 class Source(Protocol):
-    """Attribute-only base for all configuration sources."""
-    name: str                                   # for provenance and error messages
-    mode: MergeMode                             # default MergeMode.OVERRIDE (see §5.5)
-    profile: str | None                         # default None (see §5.6)
+    """Read-only base for all configuration sources."""
+    @property
+    def name(self) -> str: ...                  # for provenance and error messages
+    @property
+    def mode(self) -> MergeMode: ...            # default MergeMode.OVERRIDE (see §5.5)
+    @property
+    def profile(self) -> str | None: ...        # default None (see §5.6)
 
 @runtime_checkable
 class SyncSource(Source, Protocol):
     """A source that delivers data synchronously."""
     def fetch(self) -> Mapping[str, Any]: ...
 ```
+
+The members are declared as read-only properties, not plain attributes: sources are
+conceptually immutable, and a plain protocol attribute demands settability under strict
+type checking — which a concrete source's read-only `name` property would fail. Both
+plain class attributes and properties satisfy the property form.
 
 `Source` is the shared base for mixed-source collections; `SyncSource` and `AsyncSource`
 (§5.2) each add the matching fetch contract without re-declaring the shared attributes.
@@ -226,11 +246,11 @@ class Loader(Protocol):
 |---|---|---|
 | `EnvSource(prefix=..., delimiter="__")` | environment variables | core (stdlib) |
 | `DotenvSource(path)` | `.env` files | `[dotenv]` (python-dotenv) |
-| `FileSource(path, loader=...)` | local files | core for local I/O; `[remote]` (fsspec) for remote URIs |
+| `FileSource(path, loader=...)` | local files | core for local I/O; `[remote]` (fsspec) for remote URIs — per-backend extras `[s3]`, `[gcs]`, `[adl]` pull the matching fsspec filesystem |
 | `MemorySource(mapping)` | in-process data; the testing workhorse | core |
 | `ClickSource` / `TyperSource` | consume an existing Click/Typer command | `[cli]` (click/typer) |
 | `ArgparseSource` | consume an argparse namespace | core (argparse is stdlib) |
-| cloud secret/param stores | AWS/GCP/Vault | `[aws]`, `[gcp]`, `[vault]` |
+| cloud secret/param stores | AWS/GCP/Azure/Vault/Consul | `[aws]`, `[gcp]`, `[azure]`, `[vault]`, `[consul]` |
 
 Loaders: JSON (core), YAML (`[yaml]`), TOML (stdlib `tomllib` on 3.11+, `[toml]` otherwise).
 
@@ -243,6 +263,10 @@ class MergeMode(enum.StrEnum):
     OVERRIDE = "override"
     FILL = "fill"
 ```
+
+On the Python 3.10 floor (`StrEnum` is 3.11+) the implementation is a `(str, enum.Enum)`
+mixin with `__str__ = str.__str__`, which restores StrEnum-equivalent `str()`/f-string
+formatting (`"override"`, not `"MergeMode.OVERRIDE"`). (ADR 0024, amended.)
 
 `MergeMode.OVERRIDE` (default) is normal precedence — the source clobbers prior values for
 keys it supplies. `MergeMode.FILL` contributes only keys *not already supplied* by a
@@ -316,7 +340,7 @@ contract. Single-value intermediates remain plain types. (ADR 0023.)
 | `FetchedEntry` | frozen dataclass | `name: str`, `data: Mapping[str, Any]`, `mode: MergeMode` | Unit passed from fetch step to merge step; decouples the two steps |
 | `ResolvedSnapshot` | frozen dataclass | `merged: dict[str, Any]`, `provenance: Provenance` | Output of the merge step |
 | `Provenance` | `TypeAlias` | `Mapping[str, str]` | Dotted field path → winning source name |
-| `FieldAnnotations` | `TypeAlias` | `Mapping[str, list[Any]]` | Return type of `SchemaAdapter.field_metadata` |
+| `FieldAnnotations` | `TypeAlias` | `Mapping[str, list[Any]]` | Return type of `SchemaAdapter.field_metadata`; keyed by dotted field path (the path table, ADR 0026) |
 | `PluginList` | `TypeAlias` | `tuple[object, ...]` | Ordered immutable sequence of pluggy plugins in `ResolutionSpec` |
 
 ---
@@ -484,7 +508,7 @@ config = config_handle.value                # the proxy, typed Settings, for eve
 from myapp.config import config_handle
 
 @app.callback()
-def _bootstrap(db_host: Annotated[str | None, typer.Option()] = None):
+def _bootstrap(database_host: Annotated[str | None, typer.Option()] = None):
     config_handle.bind(cli=TyperSource())   # resolve the base once, post-parse (§10.6)
 ```
 
@@ -502,9 +526,15 @@ binding/override changes happen inside it.
 
 **Resolution is override-aware, not cache-only.** On each access the proxy first checks the
 active `context.override()` ContextVar (§11); if an override is in scope it overlays it,
-otherwise it returns the base value set by `bind(...)`. This is what keeps the testing story
-unified (§11.3) — the same `context.override()` primitive the value path uses flows through the
-proxy, so tests need no separate proxy-lifecycle machinery.
+otherwise it returns the base value set by `bind(...)`. The overlay is a **snapshot
+overlay**: the override mapping is deep-merged (§6.3 semantics) over the base value's
+mapping form and validated through the spec's adapter into a fresh `T`, cached per
+override installation — so nested access (`config.database.host`) sees overrides, every
+read stays typed as the schema, and an override that violates the schema fails validation
+loudly instead of leaking an unvalidated value. First-hop attribute substitution is
+explicitly rejected (it cannot see past the first attribute hop). This is what keeps the
+testing story unified (§11.3) — the same `context.override()` primitive flows through the
+proxy, so tests need no separate proxy-lifecycle machinery. (ADR 0031.)
 
 What the proxy keeps and what it costs:
 
@@ -588,16 +618,22 @@ The application writes its command as normal. `confiq` reads only the parameters
 
 - **Defaults live only in the schema.** Consumer-path CLI options omit their defaults (or use
   an unset sentinel), so a value is never declared in two places.
-- **Convention binding.** A parameter maps to its config path by name (dotted path +
-  delimiter, e.g. `db_host` ↔ `database.host`). An explicit `ConfigBind("database.host")`
-  annotation (Typer/Click) — or a `bind={...}` dict entry (argparse) — is needed only when
-  the CLI name and the config path diverge.
+- **Convention binding.** A parameter maps to its config path by its exact
+  underscore-joined name, validated against the schema's path table (§4.3): the candidate
+  paths are every dotting of the parameter's underscores, intersected with the table's
+  leaf paths. Exactly one match binds (`database_host` ↔ `database.host`); more than one
+  is a `SchemaError` naming the candidates; zero matches means the parameter is an
+  ordinary CLI flag and does not participate. An explicit `ConfigBind("database.host")`
+  annotation (Typer/Click) — or a `bind={...}` dict entry (argparse) — is needed when the
+  CLI name and the config path genuinely diverge (abbreviations like `db_host`), and
+  `ConfigBind(None)` opts a matching parameter out. (ADR 0027, superseding ADR 0011's
+  opt-in model.)
 
 ```python
 @app.command()
 def main(
-    db_host: Annotated[str | None, typer.Option()] = None,            # convention-bound to database.host
-    log_level: Annotated[str | None, typer.Option(), ConfigBind("logging.level")] = None,
+    database_host: Annotated[str | None, typer.Option()] = None,      # convention-bound to database.host
+    log_level: Annotated[str | None, typer.Option(), ConfigBind("logging.level")] = None,  # diverges: explicit bind
 ) -> None:
     settings = load(Settings, sources=[
         EnvSource(prefix="APP"),
@@ -614,6 +650,16 @@ def main(
   against `parser.get_default()` is the degraded fallback (it cannot tell a user-supplied
   value that equals the default).
 
+`ClickSource`/`TyperSource` capture the active Click `Context` **eagerly at
+construction**: the explicitly-set parameters, their values, and their binding markers
+are read into an immutable snapshot, and no `Context` reference survives `__init__`.
+`fetch()` is a pure replay of that snapshot, so a CLI source held in a `ResolutionSpec`
+behaves deterministically under `ConfigHandle.reload()` — files and env re-read; the CLI
+layer replays the invocation, which has not changed. The `get_current_context()` grab in
+the constructor is the library's one documented use of ambient state, confined to the
+line where the user visibly wrote the constructor call inside a running command.
+(ADR 0032.)
+
 ### 10.4 Opt-in generator
 
 For applications that want a single declaration site (add a field → get a flag),
@@ -621,7 +667,11 @@ For applications that want a single declaration site (add a field → get a flag
 generated options, it sets their defaults to the unset sentinel automatically, so the
 "no duplicated default" property comes for free on this path. Both paths obey the same
 name↔path convention — the consumer path runs it backward (parameter → path), the generator
-runs it forward (path → parameter); they never disagree.
+runs it forward (path → parameter); they never disagree. Generated options are emitted as a
+`click.Option` subclass carrying the dotted path directly on the option object (imperative
+`params=[...]` construction has no function annotation to hang `ConfigBind` on); the
+snapshot step prefers that attached path over annotations over convention, on both paths.
+(ADR 0032.)
 
 ### 10.5 Framework support is asymmetric
 
@@ -646,7 +696,7 @@ command repeats the load:
 from .config import config_handle, config   # handle for bootstrap; config (proxy) for use
 
 @app.callback()
-def _bootstrap(db_host: Annotated[str | None, typer.Option()] = None):   # global config flags
+def _bootstrap(database_host: Annotated[str | None, typer.Option()] = None):   # global config flags
     config_handle.bind(cli=TyperSource())   # resolve the proxy's base once, post-parse
 
 @app.command()
@@ -671,21 +721,28 @@ identity, a test constructs the value it wants instead of mutating and restoring
 
 ### 11.2 Primitives and fixtures
 
-The core provides the primitives the testing story rests on: `MemorySource` (in-process data)
-and `context.override()` (a `ContextVar`-based scoped override, async-safe). A `pytest-confiq`
-plugin — modeled on Rust Figment's `Jail` — delivers the fixtures:
+The core provides the primitives the testing story rests on: `MemorySource` (in-process
+data), `context.override(data)` (a `ContextVar`-based scoped **data overlay**, async-safe,
+read only by the `LazyConfig` proxy — `load()` never consults it, staying a pure function
+of its arguments), and `spec_with(spec, overrides)` (a pure helper returning a new
+`ResolutionSpec` with a `MemorySource(overrides)` appended at highest precedence — the
+"splice one key" operation as explicit data flow). A `pytest-confiq` plugin — modeled on
+Rust Figment's `Jail` — delivers the fixtures:
 
 - a `config` fixture that builds from a `MemorySource` base, overridable per test and per
   parametrization;
-- an autouse isolation fixture so no environment or file source leaks into a test unless
-  added explicitly — what `monkeypatch` otherwise forces you to do by hand;
-- layering helpers so a test can say "the production sources, but with this one value
-  overridden" without rebuilding the stack;
-- async support via `context.override()`, giving per-task config isolation in async tests.
+- an autouse isolation fixture that scrubs `os.environ` and chdirs to a tmp path,
+  Jail-style, so no environment or file source finds anything unless a test adds data
+  explicitly — what `monkeypatch` otherwise forces you to do by hand. Isolation works on
+  the *inputs* (the environment itself), never by intercepting `load()`;
+- layering helpers (sugar over `spec_with`) so a test can say "the production sources, but
+  with this one value overridden" without rebuilding the stack;
+- async support via `context.override()`, giving per-task config isolation in async tests
+  of proxy-reading code.
 
 Two requirements fall back onto the core so the plugin stays thin: `MemorySource` and
-`override()` must be ergonomic, and the resolver must support cheaply splicing or overriding a
-single key in an existing source list.
+`override()` must be ergonomic, and `spec_with` must make splicing or overriding a single
+key in an existing source list one call. (ADR 0028, amending ADR 0016.)
 
 ### 11.3 Testing code that uses `lazy_config`
 
@@ -727,7 +784,11 @@ override-aware design in §8.4 is what avoids that fork.)
 - **Built-in cloud sources behind extras** (`confiq[aws]`, …) ship in-tree so they share one
   `Source` contract and release in lockstep with it.
 - **A `confiq.sources` entry-point group** lets third parties publish sources discovered
-  without a pull request.
+  without a pull request. Consumption semantics: the group is a *discoverability naming
+  convention* — tooling and humans can enumerate installed source packages — and the core
+  does nothing with it at runtime. Sources are classes the user imports and instantiates
+  into the source list; there is no registry, no auto-loading, and confiq does not
+  register its own built-ins in the group.
 - **pluggy hookimpls** cover stateless transforms and adapter resolution, including
   `confiq_get_schema_adapter`.
 - **Plugins are part of the resolution spec** (§7.1), not a handle responsibility: the same
@@ -759,15 +820,20 @@ ConfiqError                     # base
 └── ConfigValidationError       # validation/coercion failed
 ```
 
-Both `MissingConfigError` and `ConfigValidationError` hold a shared `ErrorContext(field_path,
-sources)` frozen dataclass — the diagnostic payload — and expose `err.field_path` and
-`err.sources` as forwarding properties so existing call sites require no changes. Errors
-surface the field path and contributing source names in the human-readable message, so a
-failure says where the offending value came from. `ErrorContext` is a standalone passable
-value: an error formatter or logger can accept it directly without the full exception object,
-and it is the single evolution point for future diagnostic extensions (provenance detail,
-secret-masking flags, structured output). (ADR 0025.) Secret fields (`ConfigField(secret=True)`)
-are masked in all error output on pydantic schemas.
+Both `MissingConfigError` and `ConfigValidationError` hold `contexts: tuple[ErrorContext,
+...]` — one `ErrorContext(field_path, sources)` frozen dataclass per failure, because the
+validation engine (§4.5) reports every failure in one raise and confiq preserves that
+yield rather than reporting only the first. `field_path` values are dotted paths in the
+§4.3 path-table key space. Classification: if every underlying error is a missing-field
+error, raise `MissingConfigError`; otherwise raise one `ConfigValidationError` carrying
+every context, missing and invalid alike. The human-readable message renders all
+contexts; `err.field_path` and `err.sources` remain as forwarding properties to
+`contexts[0]` for the dominant single-error case, so existing call sites require no
+changes. `ErrorContext` is a standalone passable value: an error formatter or logger can
+accept it directly without the full exception object, and it is the single evolution
+point for future diagnostic extensions (provenance detail, secret-masking flags,
+structured output). (ADR 0025, amended by ADR 0029.) Secret fields
+(`ConfigField(secret=True)`) are masked in all error output on pydantic schemas.
 
 ---
 
