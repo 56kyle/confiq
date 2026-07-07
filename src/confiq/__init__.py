@@ -23,6 +23,7 @@ from confiq.exceptions import ConfiqError
 from confiq.exceptions import ErrorContext
 from confiq.exceptions import MissingConfigError
 from confiq.exceptions import SchemaError
+from confiq.exceptions import SecretMaskingError
 from confiq.exceptions import SourceError
 from confiq.source._argparse import ArgparseSource
 from confiq.source._env import EnvSource
@@ -37,6 +38,7 @@ __all__: list[str] = [
     "ErrorContext",
     "MissingConfigError",
     "SchemaError",
+    "SecretMaskingError",
     "SourceError",
     # field metadata
     "ConfigField",

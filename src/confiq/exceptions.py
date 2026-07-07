@@ -18,6 +18,25 @@ class SourceError(ConfiqError):
 class SchemaError(ConfiqError): ...
 
 
+class SecretMaskingError(SchemaError):
+    """A schema kind that cannot mask secrets carries ConfigField(secret=True) (ADR 0039).
+
+    Subclasses SchemaError, so `except SchemaError` still catches it; the offending
+    field paths and schema kind are kept on attributes so callers need not parse the
+    message.
+    """
+
+    def __init__(self, field_paths: tuple[str, ...], schema_kind: str) -> None:
+        self.field_paths = field_paths
+        self.schema_kind = schema_kind
+        rendered = ", ".join(field_paths)
+        super().__init__(
+            f"{schema_kind} schema cannot mask secrets, but ConfigField(secret=True) is set on "
+            f"{rendered}. Use a pydantic model or a stdlib/pydantic dataclass for that structure, "
+            f"or drop secret=True.",
+        )
+
+
 @dataclass(frozen=True)
 class ErrorContext:
     field_path: str
