@@ -1,10 +1,10 @@
 """Module defining an in-process configuration source for testing."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-from confiq._types import MergeMode
 from confiq.source._base_source import BaseSource
 
 
@@ -16,7 +16,6 @@ class MemorySource(BaseSource):
         data: Mapping[str, Any],
         *,
         name: str = "memory",
-        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None: ...
 

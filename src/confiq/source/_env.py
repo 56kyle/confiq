@@ -1,10 +1,10 @@
 """Module defining an environment variable configuration source."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-from confiq._types import MergeMode
 from confiq.source._base_source import BaseSource
 
 
@@ -20,7 +20,6 @@ class EnvSource(BaseSource):
         prefix: str,
         delimiter: str = "__",
         *,
-        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None: ...
 

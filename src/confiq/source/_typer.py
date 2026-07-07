@@ -1,10 +1,10 @@
 """TyperSource: reads explicitly-set Typer parameters."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-from confiq._types import MergeMode
 from confiq.source._base_source import BaseSource
 
 
@@ -20,7 +20,6 @@ class TyperSource(BaseSource):
     def __init__(
         self,
         *,
-        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None:
         """Raises ImportError if typer is not installed."""

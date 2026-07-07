@@ -1,11 +1,11 @@
 """Module defining a .env file configuration source."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from confiq._types import MergeMode
 from confiq.source._base_source import BaseSource
 
 
@@ -21,7 +21,6 @@ class DotenvSource(BaseSource):
         self,
         path: str | Path = ".env",
         *,
-        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None: ...
 

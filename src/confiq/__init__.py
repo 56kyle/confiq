@@ -1,4 +1,5 @@
 """confiq — typed configuration from an ordered list of sources."""
+
 from __future__ import annotations
 
 from confiq import context
@@ -15,7 +16,6 @@ from confiq._load import spec_with
 from confiq._merge import FetchedEntry
 from confiq._schemaless import SchemalessConfig
 from confiq._types import FieldAnnotations
-from confiq._types import MergeMode
 from confiq._types import PluginList
 from confiq._types import Provenance
 from confiq.exceptions import ConfigValidationError
@@ -63,7 +63,6 @@ __all__: list[str] = [
     # plugin system
     "hookimpl",
     # types
-    "MergeMode",
     "FetchedEntry",
     "Provenance",
     "FieldAnnotations",

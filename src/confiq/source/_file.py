@@ -1,11 +1,11 @@
 """Module defining a file-based configuration source."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from confiq._types import MergeMode
 from confiq.loader._loader import Loader
 from confiq.source._base_source import BaseSource
 
@@ -23,7 +23,6 @@ class FileSource(BaseSource):
         path: str | Path,
         loader: Loader | None = None,
         *,
-        mode: MergeMode = MergeMode.OVERRIDE,
         profile: str | None = None,
     ) -> None: ...
 
