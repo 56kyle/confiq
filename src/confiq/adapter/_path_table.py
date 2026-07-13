@@ -22,6 +22,19 @@ from confiq.adapter._kinds import is_supported_nested_kind
 from confiq.exceptions import SchemaError
 
 
+def leaf_paths(table: FieldAnnotations) -> frozenset[str]:
+    """Return the path-table keys with no descendant key: the bindable leaves (ADR 0026, 0027).
+
+    Intermediate nested-model nodes are present in the table but are dotted prefixes of deeper
+    keys, so they are excluded; only true leaves are bindable by CLI name convention or an
+    explicit ConfigBind target.
+    """
+    keys = set(table)
+    return frozenset(
+        key for key in keys if not any(other != key and other.startswith(f"{key}.") for other in keys)
+    )
+
+
 def build_path_table(schema: type[Any]) -> FieldAnnotations:
     """Builds the dotted-path table for a schema, recursing through nested schema kinds (ADR 0026).
 

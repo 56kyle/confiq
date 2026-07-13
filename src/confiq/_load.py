@@ -17,7 +17,7 @@ from confiq._types import PluginList
 from confiq._types import T
 from confiq.source._memory import MemorySource
 from confiq.source._source import Source
-from confiq.source._source import SyncSource
+from confiq.source._source import SyncCapable
 
 
 _SPEC_WITH_SOURCE_NAME = "spec_with"
@@ -74,7 +74,7 @@ def load(spec: ResolutionSpec[T], /) -> T: ...
 @overload
 def load(
     schema: type[T],
-    sources: Sequence[SyncSource],
+    sources: Sequence[SyncCapable],
     *,
     profile: str | None = None,
     plugins: PluginList = (),
@@ -82,14 +82,14 @@ def load(
 @overload
 def load(
     schema: None,
-    sources: Sequence[SyncSource],
+    sources: Sequence[SyncCapable],
     *,
     profile: str | None = None,
     plugins: PluginList = (),
 ) -> SchemalessConfig: ...
 def load(
     schema: type[T] | ResolutionSpec[T] | None,
-    sources: Sequence[SyncSource] | None = None,
+    sources: Sequence[SyncCapable] | None = None,
     *,
     profile: str | None = None,
     plugins: PluginList = (),
@@ -104,7 +104,7 @@ def load(
     spec = _spec_from_args(schema, sources, profile, plugins)
     return resolve(
         spec.schema,
-        cast("Sequence[SyncSource]", spec.sources),
+        cast("Sequence[SyncCapable]", spec.sources),
         profile=spec.profile,
         plugins=spec.plugins,
     )

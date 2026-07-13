@@ -158,13 +158,16 @@ Per-field configuration metadata travels in `Annotated[...]` as a frozen `Config
 ```python
 @dataclass(frozen=True)
 class ConfigField:
-    env: str | None = None                     # explicit env var name (overrides the convention)
     secret: bool = False                       # mask in repr and in error output
     parser: Callable[[str], Any] | None = None # pre-validation coercion from a raw string
 ```
 
-There is no `cli` member: CLI binding lives on the CLI parameter (see §10), not on the
-schema field. Example schema, with no `confiq` import required for the types themselves:
+There is no `cli` member and no `env` member: both CLI binding and custom env-var naming
+live on the *source*, not the schema field. A field never declares where it is read from —
+that would make precedence a per-field property invisible in the source list. CLI binding
+lives on the CLI parameter (see §10); a custom env-var name is an `EnvSource`/`DotenvSource`
+`aliases` entry (§5.4). This is the positional-cascade identity: sources translate their key
+space, fields do not bind (ADR 0048). Example schema, with no `confiq` import required for the types themselves:
 
 ```python
 class Database(BaseModel):
@@ -197,9 +200,9 @@ class SchemaAdapter(Protocol[T]):
 `field_metadata` returns the schema's **path table**: one entry per fixed dotted path
 reachable from the root (`"database"`, `"database.host"`, `"database.password"`, …),
 with adapters recursing through nested models, dataclasses, and `TypedDict`s. This is
-the canonical key space shared by provenance (§6.4), parser application (§6.2 step 5),
-secret masking, `ConfigField.env` overrides, CLI binding (§10.2), and error field paths
-(§13). Recursion covers fixed paths only — elements of `list[Model]` fields and union
+the canonical key space shared by provenance (§6.4), parser application (§6.2 step 6),
+secret masking, CLI binding and env/dotenv `aliases` target validation (§6.2 step 4, §10.2),
+and error field paths (§13). Recursion covers fixed paths only — elements of `list[Model]` fields and union
 branches contribute no per-element paths. (ADR 0026.)
 
 Adapters are resolved through a pluggy hook (`confiq_get_schema_adapter`), so new schema
@@ -304,8 +307,8 @@ class Loader(Protocol):
 
 | Source | Purpose | Dependency / extra |
 |---|---|---|
-| `EnvSource(prefix=..., delimiter="__")` | environment variables | core (stdlib) |
-| `DotenvSource(path=".env", *, required=False)` | `.env` files | `[dotenv]` (python-dotenv) |
+| `EnvSource(prefix=..., delimiter="__", *, aliases=...)` | environment variables | core (stdlib) |
+| `DotenvSource(path=".env", *, aliases=..., required=False)` | `.env` files | `[dotenv]` (python-dotenv) |
 | `FileSource(path, loader=..., *, required=True)` | local files | core for local I/O; `[remote]` (fsspec) for remote URIs — per-backend extras `[s3]`, `[gcs]`, `[adl]` pull the matching fsspec filesystem |
 | `MemorySource(mapping)` | in-process data; the testing workhorse | core |
 | `ClickSource` / `TyperSource` | consume an existing Click/Typer command | `[cli]` (click/typer) |
@@ -313,6 +316,15 @@ class Loader(Protocol):
 | cloud secret/param stores | AWS/GCP/Azure/Vault/Consul | `[aws]`, `[gcp]`, `[azure]`, `[vault]`, `[consul]` |
 
 Loaders: JSON (core), YAML (`[yaml]`), TOML (stdlib `tomllib` on 3.11+, `[toml]` otherwise).
+
+`EnvSource` and `DotenvSource` are the same flat `KEY=VALUE` shape (differing only in input —
+`os.environ` vs a parsed `.env`) and share one flat→nested translation. `aliases` maps a config
+path to the external var name that fills it — `aliases={"database.url": "DATABASE_URL"}` reads
+`$DATABASE_URL` and places it at `database.url`, overriding the prefix convention for that path.
+This is the source-side home for externally-fixed var names (`DATABASE_URL`, `PORT`) that do not
+fit an app's prefix; a field never declares its own var name (ADR 0048). Alias *targets* are
+validated against the schema path table (§6.2 step 4), so a typo fails loudly. (Structured
+sources — `FileSource`, `MemorySource` — already speak config paths and take no aliases.)
 
 ### 5.5 `required`: source presence
 
@@ -375,30 +387,39 @@ Given a `ResolutionSpec` (schema — possibly `None` — sources, profile, plugi
 
 1. **Profile filter.** If `profile` is given, drop any source whose `profile` is set and
    does not equal it.
-2. **Fetch.** Drive each remaining source in order. `SyncSource.fetch()` (or
-   `AsyncSource.fetch_async()`) returns a `Mapping[str, Any]`; each result is wrapped in a
-   `FetchedEntry(name, data)` before being passed to the merge step, decoupling fetch
-   from merge. File-backed sources read bytes (stdlib for local paths, fsspec for remote) and
-   pass them through their `Loader`. Env/CLI sources map their flat keys onto config paths
-   using the name convention (prefix + delimiter), with `ConfigField.env` / `ConfigBind`
-   overrides.
-3. **Merge.** Deep-merge the `FetchedEntry` list low → high: later wins, uniformly. Lists
+2. **Fetch.** Drive each remaining source in order, pairing each source with its output so the
+   bind step can detect the *producing* source, not just its name. A normal source's `fetch()`
+   (or `fetch_async()`) returns a config-path-shaped `Mapping[str, Any]`. File-backed sources
+   read bytes (stdlib for local paths, fsspec for remote) through their `Loader`. Env/dotenv
+   sources translate their flat key space to config paths **source-side** (prefix + delimiter
+   convention, plus any `aliases`, §5.4). A **binding source** (the CLI sources) instead
+   surfaces *raw parameter names + binding markers* via `raw_bindings()` — its config paths
+   depend on the schema, so no data is produced here (ADR 0027, 0032).
+3. **Adapter.** Resolve the `SchemaAdapter` for the schema type via the pluggy hook
+   (`schema=None` selects the schemaless adapter). This moves ahead of merge because the
+   next step needs the path table, and the adapter depends only on `schema` + `plugins`
+   (ADR 0049).
+4. **Bind.** Read `field_metadata` (the path table). Rewrite each binding source's raw names
+   into config-path shape: an explicit marker (`ConfigBind` / a generated option's
+   `confiq_path`) wins; otherwise the name↔path convention (§10.2) binds against the leaf
+   paths (ambiguity → `SchemaError`, no match → non-participating). Validate any source-side
+   `aliases` *targets* against the path table here too (a bad target → `SchemaError`). A
+   bound entry becomes config-path-shaped like any other before merge, so its leaves collide
+   correctly and provenance names the binding source (ADR 0049, 0027, 0048).
+5. **Merge.** Deep-merge the resulting entries low → high: later wins, uniformly. Lists
    are replaced, not concatenated, and a type conflict (scalar over map, or vice versa)
-   replaces wholesale rather than raising — validation (step 6) is the sole refusal locus
+   replaces wholesale rather than raising — validation (step 7) is the sole refusal locus
    for a genuinely wrong shape. A parallel `Provenance` map (`Mapping[str, str]`: dotted
    field path → source name) records the winning source name per leaf. The step produces a
    `ResolvedSnapshot(merged, provenance)`. (ADR 0037.)
-4. **Adapter.** Resolve the `SchemaAdapter` for the schema type via the pluggy hook
-   (`schema=None` selects the schemaless adapter).
-5. **Coerce.** Read `field_metadata`; apply each field's `ConfigField.parser` to raw string
-   values before validation. The per-field `ConfigField.env` override (like CLI `ConfigBind`,
-   step 2) lands with the path-table binding machinery in the CLI stage; until then a populated
-   `ConfigField.env` is refused with `SchemaError` naming the field rather than silently
-   ignored (ADR 0044).
-6. **Validate.** `adapter.validate(merged)` constructs the typed value. On failure, raise
+6. **Coerce.** Apply each field's `ConfigField.parser` to raw string values before validation;
+   a raising parser folds into `ConfigValidationError` with the field path + provenance
+   (ADR 0045).
+7. **Validate.** `adapter.validate(merged)` constructs the typed value. On failure, raise
    `ConfigValidationError` carrying the field path and the provenance (which source supplied
    the offending value) in the human-readable message.
-7. **Return** the value.
+8. **Return** the value; the `ResolvedSnapshot` is retained at the color-agnostic seam for a
+   future `explain()` (ADR 0043).
 
 ### 6.3 Merge semantics
 
@@ -423,7 +444,9 @@ contract. Single-value intermediates remain plain types. (ADR 0023.)
 
 | Name | Kind | Fields / alias target | Purpose |
 |------|------|-----------------------|---------|
-| `FetchedEntry` | frozen dataclass | `name: str`, `data: Mapping[str, Any]` | Unit passed from fetch step to merge step; decouples the two steps |
+| `ContributedEntry` | frozen dataclass | `source: Source`, `data: Mapping[str, Any] \| None` | Unit passed from fetch step to the bind step; carries the *source* (not just its name) so the bind step can detect binding sources. `data` is `None` for a binding source, whose contribution the bind step computes (ADR 0049) |
+| `FetchedEntry` | frozen dataclass | `name: str`, `data: Mapping[str, Any]` | Config-path-shaped unit passed from the bind step to merge; a binding source's rewritten entry and a normal source's data are indistinguishable here |
+| `RawBinding` | frozen dataclass | `name: str`, `value: object`, `bind: ConfigBind \| None` | One explicitly-set CLI parameter surfaced by a `BindingSource.raw_bindings()` for the bind step (ADR 0027, 0032) |
 | `ResolvedSnapshot` | frozen dataclass | `merged: dict[str, Any]`, `provenance: Provenance` | Output of the merge step |
 | `Provenance` | `TypeAlias` | `Mapping[str, str]` | Dotted field path → winning source name |
 | `FieldAnnotations` | `TypeAlias` | `Mapping[str, list[Any]]` | Return type of `SchemaAdapter.field_metadata`; keyed by dotted field path (the path table, ADR 0026) |
@@ -912,7 +935,10 @@ ConfiqError                     # base
 ├── SourceError                 # a source failed to fetch (malformed input, I/O)
 │   └── SourceNotFoundError     # a required source's backing input is absent (§5.5, ADR 0040)
 ├── SchemaError                 # no adapter for the schema type, or schema misconfigured
-│   └── SecretMaskingError      # secret=True on a kind that cannot mask (§3, ADR 0039)
+│   ├── SecretMaskingError            # secret=True on a kind that cannot mask (§3, ADR 0039)
+│   ├── AmbiguousBindingError         # a CLI param name matches >1 config leaf (§10.2, ADR 0027)
+│   ├── UnknownBindTargetError        # a ConfigBind / alias target is not a schema field (ADR 0027, 0048)
+│   └── IntermediateBindTargetError   # a ConfigBind / alias target is a node, not a leaf (ADR 0049)
 ├── MissingConfigError          # a required field is absent from all sources
 └── ConfigValidationError       # validation/coercion failed
 ```

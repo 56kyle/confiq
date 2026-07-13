@@ -1,31 +1,22 @@
-"""TyperSource: reads explicitly-set Typer parameters."""
+"""TyperSource: reads explicitly-set Typer parameters (design_d §10.3, ADR 0027)."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from typing import ClassVar
 
-from confiq.source._base_source import BaseSource
+from confiq.source._click import ClickSource
 
 
-class TyperSource(BaseSource):
-    """Reads explicitly-set Typer parameters (design_d §10.3).
+class TyperSource(ClickSource):
+    """Reads explicitly-set Typer parameters as raw bindings, sharing ClickSource's mechanism.
 
-    Typer is Click underneath; this class delegates to ClickSource logic using
-    the Click Context available during Typer command execution.
+    Typer runs on Click, so a Typer command's context is a Click context; this subclass reuses
+    ClickSource's snapshot capture verbatim (ADR 0035, no drift) and differs only in the extra it
+    requires and its provenance name.
 
     Requires typer (confiq[cli]).
     """
 
-    def __init__(
-        self,
-        *,
-        profile: str | None = None,
-    ) -> None:
-        """Raises ImportError if typer is not installed."""
-        ...
-
-    @property
-    def name(self) -> str: ...
-
-    def fetch(self) -> Mapping[str, Any]: ...
+    _NAME: ClassVar[str] = "cli:typer"
+    _FRAMEWORK: ClassVar[str] = "Typer"
+    _EXTRA_MODULE: ClassVar[str] = "typer"

@@ -18,31 +18,39 @@ from confiq._schemaless import SchemalessConfig
 from confiq._types import FieldAnnotations
 from confiq._types import PluginList
 from confiq._types import Provenance
+from confiq.exceptions import AmbiguousBindingError
 from confiq.exceptions import ConfigValidationError
 from confiq.exceptions import ConfiqError
 from confiq.exceptions import ErrorContext
+from confiq.exceptions import IntermediateBindTargetError
 from confiq.exceptions import MissingConfigError
 from confiq.exceptions import SchemaError
 from confiq.exceptions import SecretMaskingError
 from confiq.exceptions import SourceError
 from confiq.exceptions import SourceNotFoundError
+from confiq.exceptions import UnknownBindTargetError
 from confiq.source._argparse import ArgparseSource
+from confiq.source._click import ClickSource
 from confiq.source._dotenv import DotenvSource
 from confiq.source._env import EnvSource
 from confiq.source._file import FileSource
 from confiq.source._memory import MemorySource
+from confiq.source._typer import TyperSource
 
 
 __all__: list[str] = [
     # errors
+    "AmbiguousBindingError",
     "ConfiqError",
     "ConfigValidationError",
     "ErrorContext",
+    "IntermediateBindTargetError",
     "MissingConfigError",
     "SchemaError",
     "SecretMaskingError",
     "SourceError",
     "SourceNotFoundError",
+    "UnknownBindTargetError",
     # field metadata
     "ConfigField",
     # loading
@@ -62,10 +70,12 @@ __all__: list[str] = [
     "context",
     # sources
     "ArgparseSource",
+    "ClickSource",
     "DotenvSource",
     "EnvSource",
     "FileSource",
     "MemorySource",
+    "TyperSource",
     # plugin system
     "hookimpl",
     # types

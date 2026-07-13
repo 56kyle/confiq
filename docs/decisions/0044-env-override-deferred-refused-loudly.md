@@ -1,8 +1,18 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-13
+superseded-by: "0048"
 ---
 # `ConfigField(env=...)` Per-Field Override Deferred to the CLI/Binding Stage; Refused Loudly Until Then
+
+> **Superseded by ADR 0048.** When this override became concrete at Stage 7, its
+> premise — that env override is a per-field "twin" of CLI binding sharing the path-table
+> machinery — did not survive scrutiny: env override routes *field → env-var* (no dotting, no
+> ambiguity), CLI binding routes *param-name → field-path* (the whole ADR 0027 convention). It
+> was a Model-2 (field-level binding) intrusion into confiq's Model-1 (positional cascade)
+> reconciler. ADR 0048 removes `ConfigField(env=...)` and moves custom external var names to
+> `EnvSource`/`DotenvSource` `aliases` (source-side). The historical reasoning below is retained
+> for the record.
 
 ## Context and Problem Statement
 

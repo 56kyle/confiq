@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from collections.abc import Mapping
 from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 from typing import TypeVar
 from typing import cast
@@ -22,35 +24,56 @@ from confiq._types import FieldAnnotations
 from confiq._types import Provenance
 from confiq._types import T
 from confiq.adapter import enforce_secret_masking
+from confiq.adapter._path_table import leaf_paths
 from confiq.adapter._schema_adapter import SchemaAdapter
+from confiq.exceptions import AmbiguousBindingError
 from confiq.exceptions import ConfigValidationError
 from confiq.exceptions import ConfiqError
 from confiq.exceptions import ErrorContext
+from confiq.exceptions import IntermediateBindTargetError
 from confiq.exceptions import MissingConfigError
-from confiq.exceptions import SchemaError
+from confiq.exceptions import UnknownBindTargetError
+from confiq.source._source import AliasedSource
 from confiq.source._source import AsyncSource
+from confiq.source._source import BindingSource
+from confiq.source._source import RawBinding
 from confiq.source._source import Source
+from confiq.source._source import SyncCapable
 from confiq.source._source import SyncSource
 
 
 _SourceT = TypeVar("_SourceT", bound=Source)
 
 
+@dataclass(frozen=True)
+class ContributedEntry:
+    """A source paired with its fetched output, the fetch→bind boundary (design_d §6.5, ADR 0049).
+
+    data is the fetched config-path mapping for a normal source; None for a BindingSource,
+    whose config-path contribution the bind step computes from its raw bindings. Binding needs
+    the producing source, not just its name, so this widens the old fetch→merge unit rather
+    than collapsing to a FetchedEntry at fetch time.
+    """
+
+    source: Source
+    data: Mapping[str, Any] | None
+
+
 def resolve(
     schema: type[T] | None,
-    sources: Sequence[SyncSource],
+    sources: Sequence[SyncCapable],
     *,
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
 ) -> T | SchemalessConfig:
-    """Execute the 7-step sync resolver (design_d §6.2).
+    """Execute the sync resolver (design_d §6.2, ADR 0049).
 
-    Steps: profile filter → fetch → merge+provenance → adapter → coerce → validate → return.
+    Steps: profile filter → fetch → adapter → bind → merge+provenance → coerce → validate → return.
     """
     _assert_no_async_sources(sources)
     filtered = _filter_by_profile(sources, profile)
-    fetched = [FetchedEntry(source.name, source.fetch()) for source in filtered]
-    value, _snapshot = _resolve_from_fetched(schema, fetched, plugins)
+    contributed = [_contribute_sync(source) for source in filtered]
+    value, _snapshot = _resolve_from_fetched(schema, contributed, plugins)
     return value
 
 
@@ -68,12 +91,29 @@ async def resolve_async(
     exactly as in resolve(), so the two colors cannot drift (design_d §9.4).
     """
     filtered = _filter_by_profile(sources, profile)
-    fetched = await _fetch_all_async(filtered)
-    value, _snapshot = _resolve_from_fetched(schema, fetched, plugins)
+    contributed = await _fetch_all_async(filtered)
+    value, _snapshot = _resolve_from_fetched(schema, contributed, plugins)
     return value
 
 
-async def _fetch_all_async(sources: Sequence[Source]) -> list[FetchedEntry]:
+def _contribute_sync(source: Source) -> ContributedEntry:
+    """Pair a sync source with its fetched data; a binding source contributes via the bind step (ADR 0049).
+
+    A BindingSource's config paths depend on the schema, so no data is fetched here — its
+    contribution is computed later from raw_bindings() against the path table. A malformed object
+    that is neither shape is refused by name, mirroring the async fetch path.
+    """
+    if isinstance(source, BindingSource):
+        return ContributedEntry(source, None)
+    if isinstance(source, SyncSource):
+        return ContributedEntry(source, source.fetch())
+    raise ConfiqError(
+        f"{source.name}: source implements neither fetch() nor raw bindings; "
+        f"implement fetch() or expose it as a binding source.",
+    )
+
+
+async def _fetch_all_async(sources: Sequence[Source]) -> list[ContributedEntry]:
     """Fetch every source concurrently, preserving list order for precedence (§14.2 #3, ADR 0047).
 
     asyncio.gather is unbounded: concurrency bounding is the source's or client's responsibility
@@ -84,13 +124,17 @@ async def _fetch_all_async(sources: Sequence[Source]) -> list[FetchedEntry]:
     return list(await asyncio.gather(*coros))
 
 
-async def _fetch_one_async(source: Source) -> FetchedEntry:
+async def _fetch_one_async(source: Source) -> ContributedEntry:
     """Fetch one source by color: await an AsyncSource, else call a SyncSource inline (ADR 0013).
 
     Each path prefers its own native fetch when a source implements both: resolve() takes fetch(),
     resolve_async() takes fetch_async(). A sync fetch runs inline rather than in to_thread:
-    offloading would drop ContextVars, the exact ADR 0013 hazard.
+    offloading would drop ContextVars, the exact ADR 0013 hazard. A binding source fetches no
+    data (its contribution is bound from raw_bindings() in the shared core), so it is
+    color-invariant and skipped here.
     """
+    if isinstance(source, BindingSource):
+        return ContributedEntry(source, None)
     if isinstance(source, AsyncSource):
         data = await source.fetch_async()
     elif isinstance(source, SyncSource):
@@ -100,27 +144,146 @@ async def _fetch_one_async(source: Source) -> FetchedEntry:
             f"{source.name}: source implements neither fetch() nor fetch_async(); "
             f"implement fetch() or fetch_async().",
         )
-    return FetchedEntry(source.name, data)
+    return ContributedEntry(source, data)
 
 
 def _resolve_from_fetched(
     schema: type[T] | None,
-    fetched: list[FetchedEntry],
+    contributed: list[ContributedEntry],
     plugins: tuple[object, ...],
 ) -> tuple[T | SchemalessConfig, ResolvedSnapshot]:
-    """Run the color-agnostic core (steps 3-7): merge, adapt, coerce, validate (ADR 0035).
+    """Run the color-agnostic core: adapt, bind, merge, coerce, validate (ADR 0035, 0049).
 
-    Returns the validated value alongside the raw merged snapshot, which is retained at
-    this seam for a future explain() projection (ADR 0043).
+    The adapter resolves from schema + plugins only, so it moves ahead of merge to expose the
+    path table binding needs. Binding rewrites binding-source contributions into config-path
+    shape before merge, so a CLI-bound leaf collides with a file leaf at the same path and
+    provenance names the binding source naturally. Returns the validated value alongside the
+    raw merged snapshot, retained at this seam for a future explain() projection (ADR 0043).
     """
-    snapshot = merge_sources(fetched)
     manager = make_plugin_manager(plugins)
     adapter = resolve_schema_adapter(manager, schema)
     enforce_secret_masking(adapter)
     metadata = adapter.field_metadata()
+    bound = _bind_sources(contributed, metadata)
+    snapshot = merge_sources(bound)
     coerced = _apply_parsers(snapshot.merged, metadata, snapshot.provenance)
     value = cast("T | SchemalessConfig", _validate(adapter, coerced, snapshot.provenance))
     return value, snapshot
+
+
+def _bind_sources(
+    contributed: Sequence[ContributedEntry],
+    metadata: FieldAnnotations,
+) -> list[FetchedEntry]:
+    """Rewrite binding-source contributions into config-path shape; validate alias targets (ADR 0048, 0049).
+
+    A binding source's raw names are resolved to config paths against the path table so its
+    entry occupies the same leaves as any other source before merge. Non-binding entries keep
+    their already-config-path-shaped data unchanged. An aliased source's declared alias targets
+    are validated against the path table here (translation itself stays source-side, ADR 0048).
+    """
+    leaves = leaf_paths(metadata)
+    entries: list[FetchedEntry] = []
+    for entry in contributed:
+        source = entry.source
+        if isinstance(source, AliasedSource):
+            _validate_alias_targets(source, leaves, metadata)
+        if isinstance(source, BindingSource):
+            entries.append(_bind_binding_source(source, leaves, metadata))
+        else:
+            entries.append(FetchedEntry(source.name, entry.data if entry.data is not None else {}))
+    return entries
+
+
+def _validate_alias_targets(
+    source: AliasedSource,
+    leaves: frozenset[str],
+    metadata: FieldAnnotations,
+) -> None:
+    """Refuse an alias whose declared target is not a schema leaf, naming it (ADR 0048)."""
+    for target in source.alias_targets:
+        _ = _require_leaf_path(target, leaves, metadata)
+
+
+def _bind_binding_source(
+    source: BindingSource,
+    leaves: frozenset[str],
+    metadata: FieldAnnotations,
+) -> FetchedEntry:
+    """Resolve each raw binding to a config path and nest its value into a config-path entry (ADR 0027)."""
+    nested: dict[str, Any] = {}
+    for binding in source.raw_bindings():
+        path = _resolve_binding(binding, leaves, metadata)
+        if path is None:
+            continue
+        _insert_path(nested, path.split("."), binding.value)
+    return FetchedEntry(source.name, nested)
+
+
+def _resolve_binding(
+    binding: RawBinding,
+    leaves: frozenset[str],
+    metadata: FieldAnnotations,
+) -> str | None:
+    """Resolve a raw binding to a config path, or None when it does not participate (ADR 0027).
+
+    An explicit ConfigBind wins: a non-None path binds after leaf validation, ConfigBind(None)
+    opts out. With no marker, the name↔path convention intersects the name's candidate dottings with
+    the leaf paths — exactly one binds, more than one raises AmbiguousBindingError naming the
+    candidates, none skips (an ordinary flag).
+    """
+    marker = binding.bind
+    if marker is not None:
+        if marker.path is None:
+            return None
+        return _require_leaf_path(marker.path, leaves, metadata)
+    matches = sorted(set(_convention_candidates(binding.name)) & leaves)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise AmbiguousBindingError(binding.name, tuple(matches))
+    return None
+
+
+def _convention_candidates(name: str) -> Iterator[str]:
+    """Yield every dotted path from replacing a subset of name's underscores with dots (ADR 0027).
+
+    The zero-replacement case (name unchanged) is included, so an exact top-level match
+    participates like any other candidate.
+    """
+    positions = [index for index, char in enumerate(name) if char == "_"]
+    for mask in range(1 << len(positions)):
+        chars = list(name)
+        for bit, position in enumerate(positions):
+            if mask & (1 << bit):
+                chars[position] = "."
+        yield "".join(chars)
+
+
+def _require_leaf_path(path: str, leaves: frozenset[str], metadata: FieldAnnotations) -> str:
+    """Return path if it names a leaf in the path table, else raise SchemaError (ADR 0027, 0048).
+
+    Shared by explicit ConfigBind targets and env/dotenv alias targets: a bind target must name a
+    schema leaf. An unknown path and a path landing on an intermediate nested-model node raise
+    distinct SchemaError subtypes so callers can tell them apart without parsing the message.
+    """
+    if path in leaves:
+        return path
+    if path in metadata:
+        raise IntermediateBindTargetError(path)
+    raise UnknownBindTargetError(path)
+
+
+def _insert_path(data: dict[str, Any], parts: Sequence[str], value: object) -> None:
+    """Write value at a dotted path, creating intermediate dicts so merge sees config-path shape."""
+    current = data
+    for part in parts[:-1]:
+        existing = current.get(part)
+        if not isinstance(existing, dict):
+            existing = {}
+            current[part] = existing
+        current = cast("dict[str, Any]", existing)
+    current[parts[-1]] = value
 
 
 def _filter_by_profile(sources: Sequence[_SourceT], profile: str | None) -> list[_SourceT]:
@@ -138,8 +301,7 @@ def _apply_parsers(
     """Coerce str leaves through their ConfigField parser over a deep copy of the merged view.
 
     The copy keeps snapshot.merged raw so retained provenance stays faithful (ADR 0043).
-    A populated ConfigField(env=...) is refused here; env override lands with ConfigBind in
-    a later stage (ADR 0044). Non-str and absent leaves pass through untouched.
+    Non-str and absent leaves pass through untouched.
 
     Every parser exception is collected and reported together as one ConfigValidationError
     (ADR 0029), not fail-fast. Coerce precedes validate, so a parser-failed load reports the
@@ -151,12 +313,6 @@ def _apply_parsers(
         field = _config_field(extras)
         if field is None:
             continue
-        if field.env is not None:
-            raise SchemaError(
-                f"{path}: ConfigField(env=...) per-field environment override is not yet "
-                f"supported; it lands with CLI binding (ConfigBind) in a later stage. Remove "
-                f"env= or set the value via the source's naming convention.",
-            )
         if field.parser is None:
             continue
         parts = path.split(".")

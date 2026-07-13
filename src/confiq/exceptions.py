@@ -41,6 +41,51 @@ class SecretMaskingError(SchemaError):
         )
 
 
+class AmbiguousBindingError(SchemaError):
+    """A CLI parameter's name matches more than one config-path leaf by convention (ADR 0027).
+
+    Subclasses SchemaError, so `except SchemaError` still catches it; the parameter and the
+    candidate paths are kept on attributes so callers need not parse the message.
+    """
+
+    def __init__(self, parameter: str, candidates: tuple[str, ...]) -> None:
+        self.parameter = parameter
+        self.candidates = candidates
+        rendered = ", ".join(candidates)
+        super().__init__(
+            f"CLI parameter {parameter!r} is ambiguous: its name matches config paths "
+            f"{rendered}. Disambiguate with ConfigBind('dotted.path').",
+        )
+
+
+class UnknownBindTargetError(SchemaError):
+    """A declared bind or alias target names no field in the schema path table (ADR 0027, 0048).
+
+    Subclasses SchemaError; the offending target is kept on an attribute so callers need not
+    parse the message.
+    """
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        super().__init__(
+            f"config path {target!r} is not a field in the schema; it must name a leaf in the schema path table.",
+        )
+
+
+class IntermediateBindTargetError(SchemaError):
+    """A declared bind or alias target names an intermediate node rather than a leaf (ADR 0027, 0048).
+
+    Subclasses SchemaError; the offending target is kept on an attribute so callers need not
+    parse the message.
+    """
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        super().__init__(
+            f"config path {target!r} binds to an intermediate node, not a leaf; bind a scalar leaf path.",
+        )
+
+
 @dataclass(frozen=True)
 class ErrorContext:
     field_path: str
