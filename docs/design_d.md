@@ -391,7 +391,10 @@ Given a `ResolutionSpec` (schema — possibly `None` — sources, profile, plugi
 4. **Adapter.** Resolve the `SchemaAdapter` for the schema type via the pluggy hook
    (`schema=None` selects the schemaless adapter).
 5. **Coerce.** Read `field_metadata`; apply each field's `ConfigField.parser` to raw string
-   values before validation.
+   values before validation. The per-field `ConfigField.env` override (like CLI `ConfigBind`,
+   step 2) lands with the path-table binding machinery in the CLI stage; until then a populated
+   `ConfigField.env` is refused with `SchemaError` naming the field rather than silently
+   ignored (ADR 0044).
 6. **Validate.** `adapter.validate(merged)` constructs the typed value. On failure, raise
    `ConfigValidationError` carrying the field path and the provenance (which source supplied
    the offending value) in the human-readable message.
@@ -1009,8 +1012,12 @@ declined — ADR 0034). Items #1 and #2 are now **resolved** and kept here as a 
 4. **Resolution observability as first-class surface.** Provenance is already tracked
    (§6.4) and surfaced in errors; an `explain()`-style dump (merged snapshot +
    per-leaf source attribution, secrets masked) would attack the "breaks invisibly"
-   problem directly on the success path, not just on failure. Candidate feature — needs
-   its own ADR, including where it lives (API, CLI, or both).
+   problem directly on the success path, not just on failure. **The structural half is
+   resolved (ADR 0043):** the resolver retains the raw `ResolvedSnapshot` at its
+   color-agnostic seam, so `resolve()`'s return is unchanged but a future `explain()` is a
+   projection of an already-available value, not a pipeline retrofit. The *surface* itself
+   remains a candidate feature needing its own ADR (where it lives — API, CLI, or both;
+   masking rules; output shape).
 
 ---
 
