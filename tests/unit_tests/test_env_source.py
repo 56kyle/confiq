@@ -43,6 +43,34 @@ def test_env_source_fetch_with_custom_delimiter(monkeypatch: pytest.MonkeyPatch)
     assert EnvSource("APP", delimiter="_").fetch() == {"db": {"host": "localhost"}}
 
 
+def test_env_source_fetch_with_alias_reads_named_var_into_declared_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgres://x")
+    monkeypatch.setenv("APP__PORT", "5432")
+
+    fetched = EnvSource("APP", aliases={"database.url": "DATABASE_URL"}).fetch()
+
+    assert fetched == {"port": "5432", "database": {"url": "postgres://x"}}
+
+
+def test_env_source_fetch_with_alias_beats_prefix_convention_at_same_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP__DATABASE__URL", "from-prefix")
+    monkeypatch.setenv("DATABASE_URL", "from-alias")
+
+    fetched = EnvSource("APP", aliases={"database.url": "DATABASE_URL"}).fetch()
+
+    assert fetched == {"database": {"url": "from-alias"}}
+
+
+def test_env_source_alias_targets_exposes_declared_config_paths() -> None:
+    source = EnvSource("APP", aliases={"database.url": "DATABASE_URL", "port": "PORT"})
+
+    assert set(source.alias_targets) == {"database.url", "port"}
+
+
 def test_env_source_name_includes_prefix() -> None:
     assert EnvSource("APP").name == "env:APP"
 

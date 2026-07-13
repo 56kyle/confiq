@@ -9,6 +9,7 @@ import pytest
 import typing_extensions
 from pydantic import BaseModel
 
+from confiq import EnvSource
 from confiq import MemorySource
 from confiq._field import ConfigField
 from confiq._resolve import resolve
@@ -61,8 +62,8 @@ class SecretSchema(typing_extensions.TypedDict):
     token: Annotated[str, ConfigField(secret=True)]
 
 
-class EnvOverrideSchema(BaseModel):
-    url: Annotated[str, ConfigField(env="DATABASE_URL")]
+class EnvAliasSchema(BaseModel):
+    url: str
 
 
 class _AsyncOnlySource:
@@ -185,9 +186,13 @@ def test_resolve_with_unmaskable_secret_field_refuses_with_secret_masking_error(
     assert exc_info.value.field_paths == ("token",)
 
 
-def test_resolve_with_populated_env_field_refuses_with_schema_error_naming_field() -> None:
-    with pytest.raises(SchemaError, match="url"):
-        resolve(EnvOverrideSchema, [MemorySource({"url": "postgres://x"})])
+def test_resolve_with_env_alias_populates_field_from_named_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgres://x")
+
+    result = resolve(EnvAliasSchema, [EnvSource("APP", aliases={"url": "DATABASE_URL"})])
+
+    assert isinstance(result, EnvAliasSchema)
+    assert result.url == "postgres://x"
 
 
 def test_resolve_with_async_only_source_refuses_pointing_to_load_async() -> None:

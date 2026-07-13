@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -14,7 +13,6 @@ from confiq._resolve import _assert_no_async_sources
 from confiq._resolve import _filter_by_profile
 from confiq.exceptions import ConfigValidationError
 from confiq.exceptions import ConfiqError
-from confiq.exceptions import SchemaError
 
 
 if TYPE_CHECKING:
@@ -95,11 +93,6 @@ def test__apply_parsers_does_not_mutate_input_mapping() -> None:
     _apply_parsers(merged, {"db.port": [ConfigField(parser=int)]}, {})
 
     assert merged == {"db": {"port": "5432"}}
-
-
-def test__apply_parsers_with_populated_env_field_raises_schema_error_naming_path() -> None:
-    with pytest.raises(SchemaError, match=re.escape("db.url")):
-        _apply_parsers({"db": {"url": "x"}}, {"db.url": [ConfigField(env="DATABASE_URL")]}, {})
 
 
 def test__apply_parsers_with_raising_parser_raises_validation_error_with_provenance() -> None:

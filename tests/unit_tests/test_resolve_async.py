@@ -195,14 +195,14 @@ def test_resolve_async_with_invalid_field_names_winning_source_in_provenance() -
 def test__fetch_one_async_with_async_only_source_awaits_fetch_async() -> None:
     entry = asyncio.run(_fetch_one_async(_AsyncMemorySource({"port": 8080}, name="async")))
 
-    assert entry.name == "async"
+    assert entry.source.name == "async"
     assert entry.data == {"port": 8080}
 
 
 def test__fetch_one_async_with_sync_only_source_calls_fetch_inline() -> None:
     entry = asyncio.run(_fetch_one_async(MemorySource({"port": 8080}, name="sync")))
 
-    assert entry.name == "sync"
+    assert entry.source.name == "sync"
     assert entry.data == {"port": 8080}
 
 
