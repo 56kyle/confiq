@@ -962,8 +962,12 @@ parameter is gone (§9.3) — so they are no longer open.)
 
 1. **`ConfigHandle.current` is a property** (not a method). Reads more naturally for an
    immutable snapshot and avoids `handle.current()`. Affects all call sites if reversed.
-2. **`load()`'s convenience form takes `schema` and `sources` positionally**, with `profile`
-   and `plugins` keyword-only. Keyword-only `sources` is the more defensive alternative.
+2. **`load()`'s convenience form takes `schema` and `sources` positionally** (positional-or-
+   keyword), with `profile` and `plugins` keyword-only. **RESOLVED (ADR 0046):** kept
+   positional-or-keyword — the signature §7.2 already writes and every example uses; the
+   keyword-only-`sources` alternative was declined as needlessly restrictive. `load_async`
+   mirrors it. (The skeleton's positional-only `/` was a bug that forbade the
+   `load(Settings, sources=[...])` form the examples rely on.)
 3. **`on_reload(fn)` passes `(old, new)` and returns a disconnect callable.** The `(old, new)`
    arity preserves `design_c`'s richer signature (useful for diffing); the disconnect return
    suits weak-referenced blinker subscribers better than returning `fn` for decorator use.

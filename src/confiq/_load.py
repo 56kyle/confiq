@@ -4,31 +4,40 @@ from __future__ import annotations
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 from typing import Generic
+from typing import cast
 from typing import overload
 
+from confiq._resolve import resolve
 from confiq._schemaless import SchemalessConfig
 from confiq._types import PluginList
 from confiq._types import T
+from confiq.source._memory import MemorySource
 from confiq.source._source import Source
 from confiq.source._source import SyncSource
+
+
+_SPEC_WITH_SOURCE_NAME = "spec_with"
 
 
 @dataclass(frozen=True)
 class ResolutionSpec(Generic[T]):
     """Immutable bundle of everything needed to resolve a configuration (design_d §7.1).
 
-    ``sources`` is stored as a tuple (any Sequence passed in is coerced in
+    ``sources`` is accepted as any Sequence and stored immutably as a tuple (coerced in
     ``__post_init__``) so the frozen spec cannot be mutated through a shared list.
     """
 
     schema: type[T] | None
-    sources: tuple[Source, ...]
+    sources: Sequence[Source]
     profile: str | None = None
     plugins: PluginList = ()
 
-    def __post_init__(self) -> None: ...
+    def __post_init__(self) -> None:
+        """Store sources as a tuple so a frozen spec cannot be mutated through a shared list."""
+        object.__setattr__(self, "sources", tuple(self.sources))
 
     @classmethod
     def schemaless(
@@ -43,7 +52,10 @@ class ResolutionSpec(Generic[T]):
         A bare ResolutionSpec(None, sources) leaves T unsolved for load(spec); this
         factory pins it.
         """
-        ...
+        return cast(
+            "ResolutionSpec[SchemalessConfig]",
+            cls(None, sources, profile, plugins),
+        )
 
 
 def spec_with(spec: ResolutionSpec[T], overrides: Mapping[str, Any]) -> ResolutionSpec[T]:
@@ -53,7 +65,7 @@ def spec_with(spec: ResolutionSpec[T], overrides: Mapping[str, Any]) -> Resoluti
     ADR 0028) as explicit data flow; pytest-confiq's layering helpers are sugar over
     this.
     """
-    ...
+    return replace(spec, sources=(*spec.sources, MemorySource(overrides, name=_SPEC_WITH_SOURCE_NAME)))
 
 
 @overload
@@ -62,7 +74,6 @@ def load(spec: ResolutionSpec[T], /) -> T: ...
 def load(
     schema: type[T],
     sources: Sequence[SyncSource],
-    /,
     *,
     profile: str | None = None,
     plugins: PluginList = (),
@@ -71,7 +82,6 @@ def load(
 def load(
     schema: None,
     sources: Sequence[SyncSource],
-    /,
     *,
     profile: str | None = None,
     plugins: PluginList = (),
@@ -79,7 +89,6 @@ def load(
 def load(
     schema: type[T] | ResolutionSpec[T] | None,
     sources: Sequence[SyncSource] | None = None,
-    /,
     *,
     profile: str | None = None,
     plugins: PluginList = (),
@@ -88,9 +97,26 @@ def load(
 
     Accepts a ResolutionSpec as the sole argument, or the convenience form
     (schema, sources, *, profile, plugins).  Raises ConfiqError if any source
-    is an AsyncSource — use load_async() for mixed lists.
+    is an AsyncSource — use load_async() for mixed lists.  Propagates
+    ConfigValidationError / MissingConfigError from resolve() on invalid or missing config.
     """
-    ...
+    if isinstance(schema, ResolutionSpec):
+        if sources is not None or profile is not None or plugins != ():
+            raise TypeError(
+                "load(spec) takes the spec alone; pass sources/profile/plugins through "
+                "the ResolutionSpec, or use the load(schema, sources, ...) form.",
+            )
+        spec: ResolutionSpec[T] = schema
+    else:
+        if sources is None:
+            raise TypeError("load(schema, sources): sources is required in the convenience form.")
+        spec = ResolutionSpec(schema, sources, profile, plugins)
+    return resolve(
+        spec.schema,
+        cast("Sequence[SyncSource]", spec.sources),
+        profile=spec.profile,
+        plugins=spec.plugins,
+    )
 
 
 @overload
@@ -99,7 +125,6 @@ async def load_async(spec: ResolutionSpec[T], /) -> T: ...
 async def load_async(
     schema: type[T],
     sources: Sequence[Source],
-    /,
     *,
     profile: str | None = None,
     plugins: PluginList = (),
@@ -108,7 +133,6 @@ async def load_async(
 async def load_async(
     schema: None,
     sources: Sequence[Source],
-    /,
     *,
     profile: str | None = None,
     plugins: PluginList = (),
@@ -116,7 +140,6 @@ async def load_async(
 async def load_async(
     schema: type[T] | ResolutionSpec[T] | None,
     sources: Sequence[Source] | None = None,
-    /,
     *,
     profile: str | None = None,
     plugins: PluginList = (),

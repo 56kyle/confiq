@@ -10,7 +10,7 @@ from confiq.source._base_source import BaseSource
 
 
 class MemorySource(BaseSource):
-    """In-process source for testing (design_d §5.4, §11.2)."""
+    """In-process data source: the testing workhorse and the splice used by spec_with (design_d §5.4, §11.2)."""
 
     def __init__(
         self,
