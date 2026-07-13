@@ -11,6 +11,7 @@ from typing import cast
 from typing import overload
 
 from confiq._resolve import resolve
+from confiq._resolve import resolve_async
 from confiq._schemaless import SchemalessConfig
 from confiq._types import PluginList
 from confiq._types import T
@@ -100,23 +101,37 @@ def load(
     is an AsyncSource — use load_async() for mixed lists.  Propagates
     ConfigValidationError / MissingConfigError from resolve() on invalid or missing config.
     """
-    if isinstance(schema, ResolutionSpec):
-        if sources is not None or profile is not None or plugins != ():
-            raise TypeError(
-                "load(spec) takes the spec alone; pass sources/profile/plugins through "
-                "the ResolutionSpec, or use the load(schema, sources, ...) form.",
-            )
-        spec: ResolutionSpec[T] = schema
-    else:
-        if sources is None:
-            raise TypeError("load(schema, sources): sources is required in the convenience form.")
-        spec = ResolutionSpec(schema, sources, profile, plugins)
+    spec = _spec_from_args(schema, sources, profile, plugins)
     return resolve(
         spec.schema,
         cast("Sequence[SyncSource]", spec.sources),
         profile=spec.profile,
         plugins=spec.plugins,
     )
+
+
+def _spec_from_args(
+    schema: type[T] | ResolutionSpec[T] | None,
+    sources: Sequence[Source] | None,
+    profile: str | None,
+    plugins: PluginList,
+) -> ResolutionSpec[T]:
+    """Build the ResolutionSpec for either load entry point (design_d §7.1).
+
+    The spec form takes the spec alone; the convenience form requires sources. This is the
+    color-agnostic dispatch shared by load() and load_async(); the async-only rejection lives
+    in resolve(), not here (ADR 0035 corollary 2).
+    """
+    if isinstance(schema, ResolutionSpec):
+        if sources is not None or profile is not None or plugins != ():
+            raise TypeError(
+                "the spec form takes the spec alone; pass sources/profile/plugins through "
+                "the ResolutionSpec, or use the convenience form (schema, sources, ...).",
+            )
+        return schema
+    if sources is None:
+        raise TypeError("the convenience form requires sources.")
+    return ResolutionSpec(schema, sources, profile, plugins)
 
 
 @overload
@@ -146,7 +161,16 @@ async def load_async(
 ) -> T | SchemalessConfig:
     """Asynchronous load entry point (design_d §7.3).
 
-    Drives AsyncSources natively (gathered on the running loop); sync Sources
-    run inline.
+    Accepts a ResolutionSpec as the sole argument, or the convenience form
+    (schema, sources, *, profile, plugins).  Drives AsyncSources natively
+    (gathered on the running loop) and runs sync Sources inline; unlike load(),
+    async-only sources are accepted rather than rejected.  Propagates
+    ConfigValidationError / MissingConfigError from resolve_async() on invalid or missing config.
     """
-    ...
+    spec = _spec_from_args(schema, sources, profile, plugins)
+    return await resolve_async(
+        spec.schema,
+        spec.sources,
+        profile=spec.profile,
+        plugins=spec.plugins,
+    )

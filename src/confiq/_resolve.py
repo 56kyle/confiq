@@ -1,6 +1,7 @@
 """Module defining the primary config resolution logic for the confiq package."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from collections.abc import Sequence
 from copy import deepcopy
@@ -60,8 +61,46 @@ async def resolve_async(
     profile: str | None = None,
     plugins: tuple[object, ...] = (),
 ) -> T | SchemalessConfig:
-    """Same 7 steps; AsyncSources are gathered concurrently via asyncio.gather."""
-    ...
+    """Execute the async resolver, sharing the color-agnostic core with resolve() (ADR 0035).
+
+    Only step 2 (fetch) differs by color: AsyncSources are awaited concurrently via
+    asyncio.gather while sync sources run inline. Steps 3-7 run through _resolve_from_fetched
+    exactly as in resolve(), so the two colors cannot drift (design_d §9.4).
+    """
+    filtered = _filter_by_profile(sources, profile)
+    fetched = await _fetch_all_async(filtered)
+    value, _snapshot = _resolve_from_fetched(schema, fetched, plugins)
+    return value
+
+
+async def _fetch_all_async(sources: Sequence[Source]) -> list[FetchedEntry]:
+    """Fetch every source concurrently, preserving list order for precedence (§14.2 #3, ADR 0047).
+
+    asyncio.gather is unbounded: concurrency bounding is the source's or client's responsibility
+    (ADR 0047). Order is preserved regardless of which sources are async, so the downstream merge
+    sees the same precedence the caller listed.
+    """
+    coros = [_fetch_one_async(source) for source in sources]
+    return list(await asyncio.gather(*coros))
+
+
+async def _fetch_one_async(source: Source) -> FetchedEntry:
+    """Fetch one source by color: await an AsyncSource, else call a SyncSource inline (ADR 0013).
+
+    Each path prefers its own native fetch when a source implements both: resolve() takes fetch(),
+    resolve_async() takes fetch_async(). A sync fetch runs inline rather than in to_thread:
+    offloading would drop ContextVars, the exact ADR 0013 hazard.
+    """
+    if isinstance(source, AsyncSource):
+        data = await source.fetch_async()
+    elif isinstance(source, SyncSource):
+        data = source.fetch()
+    else:
+        raise ConfiqError(
+            f"{source.name}: source implements neither fetch() nor fetch_async(); "
+            f"implement fetch() or fetch_async().",
+        )
+    return FetchedEntry(source.name, data)
 
 
 def _resolve_from_fetched(

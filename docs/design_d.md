@@ -994,25 +994,22 @@ declined — ADR 0034). Items #1 and #2 are now **resolved** and kept here as a 
    trivial and the `T | SchemalessConfig` union stays hidden behind the `load()` overloads.
 3. **Async source support: a problem-boundary question.** (Reframed by ADR 0035 — the
    prior cost framing is retired; maintenance burden is not an admissible factor.)
-   "The app is async" and "the config work is async" are different claims. Async *apps*
-   are already served: their config loading is sync-shaped (startup, often before the
-   loop exists), and sync `load()` is what they need. What remains is decided per
-   capability:
+   Decided per capability:
+   - **Async fetch** (`AsyncSource`, `load_async`, `resolve_async`). **RESOLVED: ships
+     (ADR 0047).** Async-native fetch is a mainstream shape a config source takes and is
+     within the problem's reasonable range; the no-async workaround corrupts provenance
+     (await-then-`MemorySource` records the origin as "memory"), a defect against §1; and
+     the color-agnostic pipeline (§9.4) was built for exactly this, so the entry points are
+     drift-proof shells over `_resolve_from_fetched`. Fetch uses **unbounded
+     `asyncio.gather`** (order-preserving; concurrency bounding is the source's/client's
+     responsibility, not a spec knob) with sync sources run inline and **no `to_thread`
+     bridge** in either direction (it would drop ContextVars, the ADR 0013 hazard). Async
+     *built-in* sources are still not shipped — a built-in wrapping a sync-first SDK would be
+     false structure; the extension point receives a genuinely-async source (e.g. a remote
+     `FileSource` over fsspec `AsyncFileSystem`) honestly when one is built.
    - **Async reload** is *essential* complexity of the live-reload sub-problem in async
-     services — a blocking re-fetch parks the event loop under traffic. If `[reload]`
-     serves those services, `reload_async` belongs to that sub-problem.
-   - **Async fetch** (`AsyncSource`, `load_async`) models a source shape — async-native
-     fetch code — that today exists mainly in custom in-house sources; the cloud SDKs
-     behind our built-ins are sync-first, so built-in `AsyncSource`s now would be false
-     structure (async clothing on blocking calls).
-
-   Criterion: does v1's problem include the async-reload sub-problem and/or the
-   async-native fetch shape? Known defects of the no-async workarounds, which count
-   against deferral on problem grounds: await-then-`MemorySource` corrupts provenance
-   (the value's origin records as "memory"); `asyncio.to_thread(handle.reload)` runs
-   subscribers off-loop. If async entry points ship, the shared-pipeline requirement
-   (§9.4) applies, and `load_async` running slow sync sources inline warrants
-   re-examination against the refusal principle (§2).
+     services — a blocking re-fetch parks the event loop under traffic. `reload_async`
+     belongs to the `[reload]` sub-problem and is decided at that stage (§8).
 4. **Resolution observability as first-class surface.** Provenance is already tracked
    (§6.4) and surfaced in errors; an `explain()`-style dump (merged snapshot +
    per-leaf source attribution, secrets masked) would attack the "breaks invisibly"
