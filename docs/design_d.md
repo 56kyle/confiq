@@ -250,8 +250,6 @@ class Source(Protocol):
     @property
     def name(self) -> str: ...                  # for provenance and error messages
     @property
-    def mode(self) -> MergeMode: ...            # default MergeMode.OVERRIDE (see §5.5)
-    @property
     def profile(self) -> str | None: ...        # default None (see §5.6)
 
 @runtime_checkable
@@ -267,8 +265,14 @@ plain class attributes and properties satisfy the property form.
 
 `Source` is the shared base for mixed-source collections; `SyncSource` and `AsyncSource`
 (§5.2) each add the matching fetch contract without re-declaring the shared attributes.
-A `BaseSource` convenience class supplies the defaults (`mode=MergeMode.OVERRIDE`, `profile=None`)
-so concrete sync sources need only implement `name` and `fetch`.
+A `BaseSource` convenience class supplies the `profile=None` default so concrete sync
+sources need only implement `name` and `fetch`.
+
+The protocol carries no merge-`mode`: precedence is entirely the source list order (§6.1),
+and the merge is a single uniform overwrite (§6.3). An earlier `MergeMode.FILL` /
+`OVERRIDE` distinction was removed because FILL was position-redundant — the same effect
+is expressible by list position — so it earned no permanent second merge mode. (ADR 0036,
+retiring ADR 0024.)
 
 ### 5.2 `AsyncSource`
 
@@ -301,8 +305,8 @@ class Loader(Protocol):
 | Source | Purpose | Dependency / extra |
 |---|---|---|
 | `EnvSource(prefix=..., delimiter="__")` | environment variables | core (stdlib) |
-| `DotenvSource(path)` | `.env` files | `[dotenv]` (python-dotenv) |
-| `FileSource(path, loader=...)` | local files | core for local I/O; `[remote]` (fsspec) for remote URIs — per-backend extras `[s3]`, `[gcs]`, `[adl]` pull the matching fsspec filesystem |
+| `DotenvSource(path=".env", *, required=False)` | `.env` files | `[dotenv]` (python-dotenv) |
+| `FileSource(path, loader=..., *, required=True)` | local files | core for local I/O; `[remote]` (fsspec) for remote URIs — per-backend extras `[s3]`, `[gcs]`, `[adl]` pull the matching fsspec filesystem |
 | `MemorySource(mapping)` | in-process data; the testing workhorse | core |
 | `ClickSource` / `TyperSource` | consume an existing Click/Typer command | `[cli]` (click/typer) |
 | `ArgparseSource` | consume an argparse namespace | core (argparse is stdlib) |
@@ -310,36 +314,23 @@ class Loader(Protocol):
 
 Loaders: JSON (core), YAML (`[yaml]`), TOML (stdlib `tomllib` on 3.11+, `[toml]` otherwise).
 
-### 5.5 `mode`: override vs fill
+### 5.5 `required`: source presence
 
-`mode` is typed as `MergeMode`, a `StrEnum`:
+A source's backing input may be absent (a config file that does not exist, a `.env` that
+was never written). That "absent" case is a first-class condition, distinct from "present
+but malformed" (§5.7). Sources for which absence is meaningful carry a `required: bool`
+kwarg; absence of a required source raises `SourceNotFoundError` (a `SourceError`
+subclass, §13), and absence of a non-required one contributes `{}`:
 
-```python
-class MergeMode(enum.StrEnum):
-    OVERRIDE = "override"
-    FILL = "fill"
-```
+- `FileSource(path, *, required=True)` — strict by default; naming a file you do not have
+  is almost always a mistake, so a missing file raises. `required=False` → `{}`.
+- `DotenvSource(path=".env", *, required=False)` — lenient by default; a missing `.env` is
+  the common case. `required=True` → raises.
+- `MemorySource` and `EnvSource` carry no flag: an in-process mapping is always present,
+  and an env prefix matching nothing is legitimately `{}`, never an error.
 
-On the Python 3.10 floor (`StrEnum` is 3.11+) the implementation is a `(str, enum.Enum)`
-mixin with `__str__ = str.__str__`, which restores StrEnum-equivalent `str()`/f-string
-formatting (`"override"`, not `"MergeMode.OVERRIDE"`). (ADR 0024, amended.)
-
-`MergeMode.OVERRIDE` (default) is normal precedence — the source clobbers prior values for
-keys it supplies. `MergeMode.FILL` makes a source contribute only keys that are still
-absent when its turn in the low→high merge arrives (§6.2 step 3): it never overwrites a
-lower-precedence value, and higher-precedence `OVERRIDE` sources can still overwrite it.
-Net effect: a FILL value survives only where no other source supplies the key — a
-fallback layer that cannot accidentally overwrite real values, regardless of where it
-sits in the list. `StrEnum` equality (`MergeMode.OVERRIDE == "override"`) keeps
-serialised configs readable without conversion. Call sites pass `MergeMode.OVERRIDE` /
-`MergeMode.FILL`; bare strings are a type error. (ADR 0024 — replaces the former
-`ListFillBehavior` literal.)
-
-Stated honestly: that net effect means a FILL source at *any* position is equivalent to
-the same source placed at the bottom of the list with `OVERRIDE`. FILL adds no
-expressive power over list position; its value is **enforced intent** — a fallback that
-cannot be ruined by reordering. Whether that guard rail justifies a second merge mode is
-an open question (§14).
+Presence is per-source, not a protocol member — only the sources above can be absent, so
+the flag stays off the `Source` protocol (§5.1). (ADR 0040.)
 
 ### 5.6 `profile`
 
@@ -348,6 +339,26 @@ participates only if its `profile` is `None` (untagged sources always participat
 the selected profile. Nothing is auto-discovered; the user composes the list and names the
 profile explicitly. Profiles are sugar over the explicit list, not a new precedence
 mechanism — the same outcome is expressible by composing different lists.
+
+### 5.7 Malformed input and the loader/source error contract
+
+Distinct from absence (§5.5), an input that is present but broken fails loudly, and the
+failure names its source (§2 legibility; §6.4 provenance):
+
+- **The loader raises; the source wraps.** A `Loader.parse` surfaces the format library's
+  own error on malformed bytes (`json.JSONDecodeError`, `tomllib.TOMLDecodeError`,
+  `yaml.YAMLError`), and rejects a non-mapping top level (a bare list or scalar) with a
+  `ValueError`. The owning source catches loader and I/O errors and re-raises
+  `SourceError(name, …) from <original>`, so the message names the file and the cause
+  chains. A `SourceNotFoundError` and the missing-extra `ImportError` below are *not*
+  wrapped — they pass through as themselves.
+- **Empty is not malformed.** An empty or whitespace-only file parses to `{}` (YAML's
+  `None` result is normalised to `{}`), because "this file supplies nothing" is a valid
+  contribution, not an error.
+- **A missing optional dependency is a stdlib `ImportError`** naming the extra
+  (`pip install confiq[yaml]`), raised at the point the loader/source needs it — an
+  install-time programmer error, deliberately not dressed up as a data error. A shared
+  `import_optional(name, extra=…)` helper produces these. (ADR 0006, ADR 0041.)
 
 ---
 
@@ -366,16 +377,17 @@ Given a `ResolutionSpec` (schema — possibly `None` — sources, profile, plugi
    does not equal it.
 2. **Fetch.** Drive each remaining source in order. `SyncSource.fetch()` (or
    `AsyncSource.fetch_async()`) returns a `Mapping[str, Any]`; each result is wrapped in a
-   `FetchedEntry(name, data, mode)` before being passed to the merge step, decoupling fetch
+   `FetchedEntry(name, data)` before being passed to the merge step, decoupling fetch
    from merge. File-backed sources read bytes (stdlib for local paths, fsspec for remote) and
    pass them through their `Loader`. Env/CLI sources map their flat keys onto config paths
    using the name convention (prefix + delimiter), with `ConfigField.env` / `ConfigBind`
    overrides.
-3. **Merge.** Deep-merge the `FetchedEntry` list low → high. For `MergeMode.OVERRIDE` sources
-   later wins; for `MergeMode.FILL` sources a key is contributed only if absent so far. Lists
-   are replaced, not concatenated. A parallel `Provenance` map (`Mapping[str, str]`: dotted
+3. **Merge.** Deep-merge the `FetchedEntry` list low → high: later wins, uniformly. Lists
+   are replaced, not concatenated, and a type conflict (scalar over map, or vice versa)
+   replaces wholesale rather than raising — validation (step 6) is the sole refusal locus
+   for a genuinely wrong shape. A parallel `Provenance` map (`Mapping[str, str]`: dotted
    field path → source name) records the winning source name per leaf. The step produces a
-   `ResolvedSnapshot(merged, provenance)`.
+   `ResolvedSnapshot(merged, provenance)`. (ADR 0037.)
 4. **Adapter.** Resolve the `SchemaAdapter` for the schema type via the pluggy hook
    (`schema=None` selects the schemaless adapter).
 5. **Coerce.** Read `field_metadata`; apply each field's `ConfigField.parser` to raw string
@@ -387,8 +399,13 @@ Given a `ResolutionSpec` (schema — possibly `None` — sources, profile, plugi
 
 ### 6.3 Merge semantics
 
-Deep-merge, list-replacement. List-replacement is deliberate and legible: a higher source's
-list replaces a lower one's rather than accumulating, so "reset this list" is expressible.
+Deep-merge, list-replacement, uniform overwrite. List-replacement is deliberate and legible:
+a higher source's list replaces a lower one's rather than accumulating, so "reset this list"
+is expressible. `None` from a higher source is data — it overwrites a lower non-`None` value
+(unset is modelled at the source: env/CLI omit the key, they do not send `None`). A
+type conflict overwrites wholesale and the merge never raises on structure; the merge stays
+schema-agnostic, and a wrong shape is caught at validation, which can name the field and its
+winning source. (ADR 0037.)
 
 ### 6.4 Provenance
 
@@ -403,7 +420,7 @@ contract. Single-value intermediates remain plain types. (ADR 0023.)
 
 | Name | Kind | Fields / alias target | Purpose |
 |------|------|-----------------------|---------|
-| `FetchedEntry` | frozen dataclass | `name: str`, `data: Mapping[str, Any]`, `mode: MergeMode` | Unit passed from fetch step to merge step; decouples the two steps |
+| `FetchedEntry` | frozen dataclass | `name: str`, `data: Mapping[str, Any]` | Unit passed from fetch step to merge step; decouples the two steps |
 | `ResolvedSnapshot` | frozen dataclass | `merged: dict[str, Any]`, `provenance: Provenance` | Output of the merge step |
 | `Provenance` | `TypeAlias` | `Mapping[str, str]` | Dotted field path → winning source name |
 | `FieldAnnotations` | `TypeAlias` | `Mapping[str, list[Any]]` | Return type of `SchemaAdapter.field_metadata`; keyed by dotted field path (the path table, ADR 0026) |
@@ -889,11 +906,17 @@ only for remote URIs.)
 
 ```
 ConfiqError                     # base
-├── SourceError                 # a source failed to fetch
+├── SourceError                 # a source failed to fetch (malformed input, I/O)
+│   └── SourceNotFoundError     # a required source's backing input is absent (§5.5, ADR 0040)
 ├── SchemaError                 # no adapter for the schema type, or schema misconfigured
+│   └── SecretMaskingError      # secret=True on a kind that cannot mask (§3, ADR 0039)
 ├── MissingConfigError          # a required field is absent from all sources
 └── ConfigValidationError       # validation/coercion failed
 ```
+
+A missing *optional dependency* is intentionally not in this tree: it surfaces as a stdlib
+`ImportError` naming the extra (§5.7), because it is an install-time programmer error, not a
+runtime config failure.
 
 Both `MissingConfigError` and `ConfigValidationError` hold `contexts: tuple[ErrorContext,
 ...]` — one `ErrorContext(field_path, sources)` frozen dataclass per failure, because the
@@ -946,20 +969,22 @@ parameter is gone (§9.3) — so they are no longer open.)
 
 ### 14.2 Open scope questions
 
-Deliberately undecided (a culling pass was declined; these resolve through discussion as
-implementation reaches them — ADR 0034). Each is listed with the criterion that decides
-it, so the future conversation starts from the question rather than re-deriving it.
+These resolve through discussion as implementation reaches them (a culling pass was
+declined — ADR 0034). Items #1 and #2 are now **resolved** and kept here as a record;
+#3 and #4 remain open, each listed with the criterion that decides it.
 
-1. **`MergeMode.FILL`: keep or remove.** FILL is position-redundant (§5.5): a FILL
-   source anywhere is equivalent to the same source at the bottom of the list with
-   `OVERRIDE`. Its only non-redundant value is enforced intent — a fallback that cannot
-   be ruined by list reordering. Criterion: is that guard rail worth a permanent second
-   merge mode in the merge logic and provenance bookkeeping? Decide when implementation
-   reaches the merge step (amend ADR 0024 either way).
-2. **Schemaless mode: keep or remove.** An empty `BaseModel` with `extra="allow"`
-   appears to cover the no-schema use case in one line. Criterion: is any real user
-   *hard-blocked* without `schema=None` — not merely inconvenienced? If none surfaces,
-   removal simplifies the §3 gradient, the adapter set, and the `load()` overloads.
+1. **`MergeMode.FILL`: keep or remove. — RESOLVED: removed (ADR 0036).** FILL was
+   position-redundant (a FILL source anywhere equals the same source at the bottom of the
+   list with `OVERRIDE`); its only non-redundant value was enforced intent — a fallback
+   that cannot be ruined by reordering. That guard rail did not justify a permanent second
+   merge mode plus its provenance bookkeeping, and the reorder footgun it guarded is already
+   diagnosable via provenance (§6.4). The entire `mode` concept was removed with it (§5.1,
+   §6.3); re-adding later is additive and non-breaking.
+2. **Schemaless mode: keep or remove. — RESOLVED: kept (ADR 0038).** An empty `BaseModel`
+   with `extra="allow"` is a different product (it still requires a pydantic model), and
+   ADR 0037 already leans on schemaless as a reliable untyped debugging view; the untyped
+   merged-config capability is inherent to the config problem. The `SchemalessAdapter` is
+   trivial and the `T | SchemalessConfig` union stays hidden behind the `load()` overloads.
 3. **Async source support: a problem-boundary question.** (Reframed by ADR 0035 — the
    prior cost framing is retired; maintenance burden is not an admissible factor.)
    "The app is async" and "the config work is async" are different claims. Async *apps*
