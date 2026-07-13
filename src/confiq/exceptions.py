@@ -15,6 +15,10 @@ class SourceError(ConfiqError):
         super().__init__(f"{source_name}: {message}")
 
 
+class SourceNotFoundError(SourceError):
+    """A source's backing input is absent, distinct from malformed content (ADR 0040)."""
+
+
 class SchemaError(ConfiqError): ...
 
 

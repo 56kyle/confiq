@@ -25,7 +25,9 @@ from confiq.exceptions import MissingConfigError
 from confiq.exceptions import SchemaError
 from confiq.exceptions import SecretMaskingError
 from confiq.exceptions import SourceError
+from confiq.exceptions import SourceNotFoundError
 from confiq.source._argparse import ArgparseSource
+from confiq.source._dotenv import DotenvSource
 from confiq.source._env import EnvSource
 from confiq.source._file import FileSource
 from confiq.source._memory import MemorySource
@@ -40,6 +42,7 @@ __all__: list[str] = [
     "SchemaError",
     "SecretMaskingError",
     "SourceError",
+    "SourceNotFoundError",
     # field metadata
     "ConfigField",
     # loading
@@ -59,6 +62,7 @@ __all__: list[str] = [
     "context",
     # sources
     "ArgparseSource",
+    "DotenvSource",
     "EnvSource",
     "FileSource",
     "MemorySource",

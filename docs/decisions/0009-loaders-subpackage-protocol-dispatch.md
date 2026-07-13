@@ -4,7 +4,9 @@ Date: 2026-05-31
 
 ## Status
 
-Accepted
+Accepted; superseded in part by ADR 0042 (the `Loader` protocol becomes
+`parse(raw: bytes)`, and `FileSource` takes a single `loader` with suffix dispatch rather
+than a `loaders: list`). The subpackage structure and plugin-decoupling rationale stand.
 
 ## Context
 
