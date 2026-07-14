@@ -1,8 +1,13 @@
 ---
 status: accepted
 date: 2026-06-05
+amended-by: "0036"
 ---
 # Source `mode` and `profile` Attributes for Declarative Layering and Filtering
+
+> **Amended by ADR 0036.** The source **`mode`** attribute proposed here was removed for v1 (it
+> paired with `MergeMode.FILL`, also removed). **`profile` stands** and is implemented as
+> described. Do not implement a source `mode` attribute.
 
 ## Context and Problem Statement
 

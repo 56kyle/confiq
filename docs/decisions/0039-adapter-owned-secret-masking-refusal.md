@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-07-07
+amends: "0033"
 ---
 # Adapter-Owned Secret-Masking Refusal with a Dedicated `SecretMaskingError`
 

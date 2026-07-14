@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-07-06
+amends: "0015, 0024"
 ---
 # Remove `MergeMode.FILL` and the Source `mode` Concept for v1
 

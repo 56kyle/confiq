@@ -1,8 +1,14 @@
 ---
-status: accepted
+status: superseded
 date: 2026-06-07
+superseded-by: "0036"
 ---
 # `MergeMode` StrEnum Replaces `ListFillBehavior` Literal
+
+> **Superseded by ADR 0036.** `MergeMode` (and the whole `mode`/`FILL` concept introduced here)
+> was removed for v1 — FILL was position-redundant and the guard-rail did not justify a permanent
+> second merge mode. A reader implementing the `MergeMode` StrEnum below would be building removed
+> behavior; the current merge is a single uniform-overwrite path (design_d §6.3).
 
 ## Context and Problem Statement
 

@@ -313,7 +313,12 @@ class Loader(Protocol):
 | `MemorySource(mapping)` | in-process data; the testing workhorse | core |
 | `ClickSource` / `TyperSource` | consume an existing Click/Typer command | `[cli]` (click/typer) |
 | `ArgparseSource` | consume an argparse namespace | core (argparse is stdlib) |
-| cloud secret/param stores | AWS/GCP/Azure/Vault/Consul | `[aws]`, `[gcp]`, `[azure]`, `[vault]`, `[consul]` |
+| cloud secret/param stores *(PLANNED)* | AWS/GCP/Azure/Vault/Consul | `[aws]`, `[gcp]`, `[azure]`, `[vault]`, `[consul]` |
+
+Everything above is shipped **except the rows marked *(PLANNED)*** and remote `FileSource`: the
+cloud secret/param sources have no code yet, and `FileSource` raises `NotImplementedError` on a
+remote URI. Those extras are declared but not yet wired; they land in the remote-and-cloud-sources
+stage. (Local sources, loaders, CLI, and the `aliases` machinery are fully implemented.)
 
 Loaders: JSON (core), YAML (`[yaml]`), TOML (stdlib `tomllib` on 3.11+, `[toml]` otherwise).
 
@@ -447,7 +452,7 @@ contract. Single-value intermediates remain plain types. (ADR 0023.)
 | `ContributedEntry` | frozen dataclass | `source: Source`, `data: Mapping[str, Any] \| None` | Unit passed from fetch step to the bind step; carries the *source* (not just its name) so the bind step can detect binding sources. `data` is `None` for a binding source, whose contribution the bind step computes (ADR 0049) |
 | `FetchedEntry` | frozen dataclass | `name: str`, `data: Mapping[str, Any]` | Config-path-shaped unit passed from the bind step to merge; a binding source's rewritten entry and a normal source's data are indistinguishable here |
 | `RawBinding` | frozen dataclass | `name: str`, `value: object`, `bind: ConfigBind \| None` | One explicitly-set CLI parameter surfaced by a `BindingSource.raw_bindings()` for the bind step (ADR 0027, 0032) |
-| `ResolvedSnapshot` | frozen dataclass | `merged: dict[str, Any]`, `provenance: Provenance` | Output of the merge step |
+| `ResolvedSnapshot` | frozen dataclass | `merged: Mapping[str, Any]`, `provenance: Provenance` | Output of the merge step |
 | `Provenance` | `TypeAlias` | `Mapping[str, str]` | Dotted field path → winning source name |
 | `FieldAnnotations` | `TypeAlias` | `Mapping[str, list[Any]]` | Return type of `SchemaAdapter.field_metadata`; keyed by dotted field path (the path table, ADR 0026) |
 | `PluginList` | `TypeAlias` | `tuple[object, ...]` | Ordered immutable sequence of pluggy plugins in `ResolutionSpec` |
@@ -481,9 +486,19 @@ handle's reloads for free, because the spec persists.
 @overload
 def load(spec: ResolutionSpec[T]) -> T: ...
 @overload
-def load(schema: type[T], sources: Sequence[SyncSource], *,
+def load(schema: type[T], sources: Sequence[SyncCapable], *,   # SyncCapable = SyncSource | BindingSource
          profile: str | None = None, plugins: PluginList = ()) -> T: ...
+@overload
+def load(schema: None, sources: Sequence[SyncCapable], *,      # schema=None → SchemalessConfig
+         profile: str | None = None, plugins: PluginList = ()) -> SchemalessConfig: ...
 ```
+
+The sync entry points accept `Sequence[SyncCapable]` (`SyncSource | BindingSource`) rather than
+`Sequence[SyncSource]`, so the eager-snapshot CLI sources (which are `BindingSource`s, not
+`SyncSource`s) type-check into `load()` while an `AsyncSource` stays a static type error.
+`ResolutionSpec.schemaless(sources, ...)` pins `T = SchemalessConfig` for the schemaless spec
+form, and `spec_with(spec, overrides)` (§11.2) returns a new spec with a highest-precedence
+`MemorySource(overrides)` appended.
 
 The convenience form builds a `ResolutionSpec` internally; both forms run the same resolver
 (§6.2). `load()` accepts only synchronous sources. Handed an `AsyncSource`, it raises a clear
@@ -660,10 +675,19 @@ What the proxy keeps and what it costs:
   after which reads do not raise; (2) a discipline of not dereferencing `config` at literal
   import time (the proxy raises a clear "not bound" error if violated, rather than returning
   pre-CLI values); (3) it is a proxy, so `isinstance` works (via `__class__` forwarding) but
-  `type(config) is Settings`, pickling, and identity edges are imperfect; (4) the §9.1
-  single-atomic-read property does not hold on the proxy path — each access is a `ContextVar`
-  check plus the base read (cheap, and a no-op when no override is active, i.e. normal
-  production).
+  identity edges are imperfect; (4) the §9.1 single-atomic-read property does not hold on the
+  proxy path — each access is a `ContextVar` check plus the base read (cheap, and a no-op when no
+  override is active, i.e. normal production).
+
+  The proxy contract, stated precisely (it is a read-*through* handle, not a value):
+  - `isinstance(config, Settings)` is `True`; but `type(config) is Settings` is `False`, and
+    `==`/`hash` are the proxy's own identity — compare `config.field`, not `config` itself.
+  - The proxy is **read-only** (`config.x = v` raises `AttributeError`) and **not copyable**
+    (`copy`/`deepcopy` raise `TypeError` — copy `config_handle.value`'s target instead).
+  - A direct attribute read on an **unbound** proxy raises `AttributeError` naming the `bind()`
+    fix; because that is an `AttributeError` (deliberately *outside* the `ConfiqError` tree — it
+    is a programmer usage error surfaced through attribute-access semantics), `hasattr(config, x)`
+    and `getattr(config, x, default)` degrade normally rather than crashing third-party code.
 
 If you would rather the control be discoverable *through* the proxy than via a separate handle
 name, the collision-safe form is a single reserved attribute, `config.__confiq__.bind(...)` —
@@ -696,6 +720,13 @@ concurrency cost lives here, in the opt-in path — never in the common `load()`
 `on_reload` is modeled on a **blinker** signal: weak-referenced subscribers (a handler's
 lifetime is not accidentally extended) and documented connect/disconnect semantics, instead
 of a bespoke callback list. (blinker is pulled in by the `[reload]` extra, not the core.)
+`on_reload` returns a disconnect callable; note that callable holds `fn` *strongly*, so the
+weak-ref auto-cleanup only applies once the disconnect handle is discarded (a subscriber you
+neither disconnect nor otherwise keep alive is collected and stops firing). This "a *collected*
+subscriber silently stops firing" is deliberate and correct — it is a *dead* observer vanishing,
+categorically different from *skipping a live* subscriber, which the sync-`reload()`-with-an-
+async-subscriber path refuses loudly rather than silently skips (ADR 0051). Refusal-over-
+degradation applies to the live case; GC of a dead observer is not a degradation.
 
 Subscribers may be sync or async, but each kind is tied to the matching reload entry point —
 there is no cross-scheduling and no stored event-loop reference. `reload()` performs the swap,
@@ -709,10 +740,10 @@ call `reload()` synchronously (the `ReentrancyGuard` fast-fails).
 ### 9.4 Async entry points
 
 Async is a clean second entry point, not a colored twin of every method. `SyncSource` and
-`AsyncSource` share the read-only base `Source`; `load`/`reload` accept
-`Sequence[SyncSource]`; `load_async`/`reload_async` accept `Sequence[Source]` (the shared
-base, covering both sync and async sources). Sync entry points reject async sources rather
-than bridging them.
+`AsyncSource` share the read-only base `Source`; `load`/`reload` accept `Sequence[SyncCapable]`
+(`SyncSource | BindingSource` — the synchronously-drivable sources); `load_async`/`reload_async`
+accept `Sequence[Source]` (the shared base, covering both sync and async sources). Sync entry
+points reject async sources rather than bridging them.
 
 Implementation requirement: the resolver pipeline (§6.2) is **color-agnostic except at
 the fetch step** — profile filtering, merge, provenance, adapter resolution, coercion,
@@ -922,7 +953,8 @@ override-aware design in §8.4 is what avoids that fork.)
 ### 12.4 Dependency discipline
 
 The governing rule (Koanf-style): **the core depends on nothing optional.** Core runtime
-dependencies are just `pydantic` (≥2) and `pluggy`. Everything else sits behind an extra:
+dependencies are `pydantic` (≥2), `pluggy`, and `typing-extensions` (for `Self`/`Protocol`
+back-compat on the 3.10 floor). Everything else sits behind an extra:
 CLI frameworks (`[cli]`), dotenv (`[dotenv]`), non-stdlib loaders (`[yaml]`, `[toml]`), remote
 filesystems (`[remote]`, fsspec), cloud SDKs (`[aws]`/`[gcp]`/`[vault]`), and the
 **live-reload layer** — `ConfigHandle`, its notification machinery, and `blinker` — behind

@@ -1,8 +1,13 @@
 ---
 status: accepted
 date: 2026-06-12
+amended-by: "0039"
 ---
 # Secret Masking Refuses on Schema Kinds That Cannot Honor It
+
+> **Amended by ADR 0039.** This ADR set the *principle* (refuse `secret=True` on a kind that
+> cannot mask) but left the *locus* open; ADR 0039 pins it — the refusal is adapter-owned via a
+> `masks_secrets`/`kind` protocol and raises a dedicated `SecretMaskingError(SchemaError)`.
 
 ## Context and Problem Statement
 
