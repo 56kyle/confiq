@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Development Status :: 1 - Planning"
+    "Development Status :: 3 - Alpha"
 ]
 dependencies = [
     "pluggy>=1.5",
