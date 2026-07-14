@@ -9,6 +9,7 @@ repo convention (no pytest-asyncio).
 from __future__ import annotations
 
 import asyncio
+import copy
 import re
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,7 @@ from confiq import LazyConfig
 from confiq import MemorySource
 from confiq import ResolutionSpec
 from confiq._lazy import _NOT_BOUND_MESSAGE
+from confiq._lazy import _UnboundConfigError
 from confiq.context import async_override
 from confiq.context import override
 from confiq.exceptions import ConfigValidationError
@@ -70,8 +72,10 @@ def test_deref_before_bind_raises_the_not_bound_error() -> None:
     lazy: LazyConfig[AppConfig] = LazyConfig(_base_spec)
     config = lazy.value
 
-    with pytest.raises(RuntimeError, match=re.escape(_NOT_BOUND_MESSAGE)):
+    with pytest.raises(_UnboundConfigError, match=re.escape(_NOT_BOUND_MESSAGE)) as exc_info:
         _ = config.name
+
+    assert isinstance(exc_info.value, AttributeError)
 
 
 def test_nested_read_after_bind_returns_the_base_value() -> None:
@@ -138,7 +142,7 @@ def test_reset_clears_the_cache_and_reverts_to_not_bound() -> None:
     lazy.reset()
 
     assert lazy._cache == {}
-    with pytest.raises(RuntimeError, match=re.escape(_NOT_BOUND_MESSAGE)):
+    with pytest.raises(AttributeError, match=re.escape(_NOT_BOUND_MESSAGE)):
         _ = config.name
 
 
@@ -168,3 +172,49 @@ def test_async_override_flows_through_the_proxy_identically() -> None:
             return config.database.host
 
     assert asyncio.run(scenario()) == "async-host"
+
+
+def test_probe_on_unbound_proxy_degrades_but_direct_read_still_raises() -> None:
+    sentinel = object()
+    config = LazyConfig(_base_spec).value
+
+    assert hasattr(config, "anything") is False
+    assert getattr(config, "anything", sentinel) is sentinel
+    with pytest.raises(AttributeError, match=re.escape(_NOT_BOUND_MESSAGE)):
+        _ = config.name
+
+
+def test_probe_on_bound_proxy_does_not_mask_the_real_read() -> None:
+    config = _bound_lazy().value
+
+    assert hasattr(config, "name") is True
+    assert getattr(config, "name", None) == "base-name"
+
+
+def test_setattr_on_proxy_is_refused_and_leaves_the_bound_read_intact() -> None:
+    config = _bound_lazy().value
+
+    with pytest.raises(AttributeError, match="read-only"):
+        config.name = "mutated"
+
+    assert config.name == "base-name"
+
+
+def test_deepcopy_of_proxy_is_refused() -> None:
+    bound = _bound_lazy().value
+    unbound = LazyConfig(_base_spec).value
+
+    with pytest.raises(TypeError, match="not copyable"):
+        copy.deepcopy(bound)
+    with pytest.raises(TypeError, match="not copyable"):
+        copy.deepcopy(unbound)
+
+
+def test_copy_of_proxy_is_refused() -> None:
+    bound = _bound_lazy().value
+    unbound = LazyConfig(_base_spec).value
+
+    with pytest.raises(TypeError, match="not copyable"):
+        copy.copy(bound)
+    with pytest.raises(TypeError, match="not copyable"):
+        copy.copy(unbound)
