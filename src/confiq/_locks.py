@@ -8,8 +8,9 @@ from typing_extensions import Self
 
 
 _REENTRY_MESSAGE = (
-    "reload() re-entered: a subscriber called reload()/reload_async() on the same handle; "
-    "subscribers must not trigger a reload."
+    "reload is already in progress on this handle: a reload subscriber triggered another reload, "
+    "or a concurrent reload was attempted from another thread/task. Reloads must not overlap or be "
+    "re-entered."
 )
 
 

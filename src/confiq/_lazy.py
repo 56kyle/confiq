@@ -5,6 +5,7 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from typing import Any
 from typing import Generic
+from typing import NoReturn
 from typing import cast
 
 from pydantic import TypeAdapter
@@ -31,6 +32,14 @@ _NOT_BOUND_MESSAGE = (
 )
 _BASE_SOURCE_NAME = "base"
 _OVERRIDE_SOURCE_NAME = "override"
+
+
+class _UnboundConfigError(AttributeError):
+    """Raised on dereference of an unbound LazyConfig proxy (design_d §8.4).
+
+    Subclasses AttributeError so that hasattr()/getattr()-with-default probes on an
+    unbound proxy degrade normally, while a direct value read still raises loudly.
+    """
 
 
 class LazyConfig(Generic[T]):
@@ -108,7 +117,7 @@ class LazyConfig(Generic[T]):
     def _require_base(self) -> T:
         """Return the bound base, or refuse with the not-bound remediation (design_d §8.4)."""
         if self._base is None:
-            raise RuntimeError(_NOT_BOUND_MESSAGE)
+            raise _UnboundConfigError(_NOT_BOUND_MESSAGE)
         return self._base
 
     def _peek_base(self) -> T | None:
@@ -139,7 +148,7 @@ class LazyConfig(Generic[T]):
         """
         adapter = self._adapter
         if adapter is None:
-            raise RuntimeError(_NOT_BOUND_MESSAGE)
+            raise _UnboundConfigError(_NOT_BOUND_MESSAGE)
         merged = merge_sources(
             [
                 FetchedEntry(_BASE_SOURCE_NAME, self._base_mapping),
@@ -167,6 +176,18 @@ class _LazyProxy(Generic[T]):
 
     def __init__(self, handle: LazyConfig[T]) -> None:
         self._handle: LazyConfig[T] = handle
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if name == "_handle":
+            super().__setattr__(name, value)
+            return
+        raise AttributeError("the config proxy is read-only; it forwards reads to the bound config value")
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> NoReturn:
+        raise TypeError("LazyConfig proxy is not copyable; copy config_handle.value's target instead")
+
+    def __copy__(self) -> NoReturn:
+        raise TypeError("LazyConfig proxy is not copyable; copy config_handle.value's target instead")
 
     def __getattr__(self, name: str) -> Any:  # pyright: ignore[reportAny]  # transparent proxy: forwards to the Any-typed wrapped value
         handle = self._handle
