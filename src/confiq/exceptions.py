@@ -86,6 +86,11 @@ class IntermediateBindTargetError(SchemaError):
         )
 
 
+def join_loc(loc: Sequence[str | int]) -> str:
+    """Dot-join a pydantic error loc into an ErrorContext.field_path (ADR 0029)."""
+    return ".".join(str(part) for part in loc)
+
+
 @dataclass(frozen=True)
 class ErrorContext:
     field_path: str

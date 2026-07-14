@@ -531,25 +531,30 @@ class ConfigHandle(Generic[T]):
         # rejects a non-frozen schema — see below
 
     @property
-    def current(self) -> T: ...                            # property (provisional, §14)
+    def current(self) -> T: ...                            # property (§14.1 #1, resolved)
 
-    def reload(self) -> T: ...
-    async def reload_async(self) -> T: ...
+    def reload(self) -> T: ...                             # returns the new snapshot (ADR 0051)
+    async def reload_async(self) -> T: ...                 # async reload ships (ADR 0050)
 
     def on_reload(self, fn: Callable[[T, T], Any]) -> Callable[[], None]: ...
-        # fn receives (old, new); returns a disconnect callable (provisional, §14)
+        # fn receives (old, new); returns a disconnect callable (§14.1 #3, resolved)
 ```
 
 A handle is constructed from a spec (`ConfigHandle(ResolutionSpec(Settings, sources=[...]))`),
 so it shares the resolution surface with `load()` and cannot drift from it.
 
 - **A handle requires a frozen schema.** Its lock-free read guarantee (§9.1) depends on each
-  snapshot being immutable, so the constructor rejects a non-frozen schema rather than
-  silently offering a guarantee it cannot keep. Plain `load()` still accepts non-frozen
-  schemas per the §3 gradient; only the *live, shared* path is constrained.
+  snapshot being immutable, so the constructor rejects a non-frozen schema (non-frozen pydantic
+  model, non-frozen dataclass, TypedDict, or schemaless) with a `SchemaError` naming the frozen
+  remediation — in the §13 taxonomy, not a bare `ValueError` (ADR 0051). Plain `load()` still
+  accepts non-frozen schemas per the §3 gradient; only the *live, shared* path is constrained.
 - **No `loop` parameter and no per-handle plugin registry.** Plugins come from the spec
-  (§7.1) and persist across reloads because the spec persists. Async subscribers are driven by
-  `reload_async()`; there is no scheduling of async subscribers from sync `reload()` (§9.3).
+  (§7.1) and persist across reloads because the spec persists. `reload()`/`reload_async()`
+  return the freshly-computed snapshot (ADR 0051). Async subscribers are driven by
+  `reload_async()`; a live async subscriber makes sync `reload()` refuse with a `RuntimeError`
+  pointing to `reload_async()` (registering one commits the handle to the async path) rather than
+  silently skipping it — the dispatch conditions only on facts knowable at each call site
+  (ADR 0051). There is no scheduling of async subscribers from sync `reload()` (§9.3).
 
 ### 8.3 Ambient access (user-owned)
 
@@ -986,19 +991,19 @@ recorded here and is easy to override. (The earlier `plugins`-on-handle and `loo
 questions are now resolved — plugins live in the `ResolutionSpec` (§7.1) and the `loop`
 parameter is gone (§9.3) — so they are no longer open.)
 
-1. **`ConfigHandle.current` is a property** (not a method). Reads more naturally for an
-   immutable snapshot and avoids `handle.current()`. Affects all call sites if reversed.
+1. **`ConfigHandle.current` is a property** (not a method). **RESOLVED: kept as a property** —
+   reads more naturally for an immutable snapshot and avoids `handle.current()`.
 2. **`load()`'s convenience form takes `schema` and `sources` positionally** (positional-or-
    keyword), with `profile` and `plugins` keyword-only. **RESOLVED (ADR 0046):** kept
    positional-or-keyword — the signature §7.2 already writes and every example uses; the
    keyword-only-`sources` alternative was declined as needlessly restrictive. `load_async`
    mirrors it. (The skeleton's positional-only `/` was a bug that forbade the
    `load(Settings, sources=[...])` form the examples rely on.)
-3. **`on_reload(fn)` passes `(old, new)` and returns a disconnect callable.** The `(old, new)`
-   arity preserves `design_c`'s richer signature (useful for diffing); the disconnect return
-   suits weak-referenced blinker subscribers better than returning `fn` for decorator use.
-   Open question: is the old value needed, and should the return be a disconnect handle or the
-   function itself.
+3. **`on_reload(fn)` passes `(old, new)` and returns a disconnect callable. — RESOLVED: kept.**
+   `old` earns its place — a diffing subscriber ("act only on what changed") needs it, and
+   passing it is free since the handle holds it during the swap. The disconnect return suits
+   weak-referenced blinker subscribers better than returning `fn`. (ADR 0051 records the
+   surrounding reload reconciliations.)
 
 ### 14.2 Open scope questions
 
@@ -1033,9 +1038,12 @@ declined — ADR 0034). Items #1 and #2 are now **resolved** and kept here as a 
      *built-in* sources are still not shipped — a built-in wrapping a sync-first SDK would be
      false structure; the extension point receives a genuinely-async source (e.g. a remote
      `FileSource` over fsspec `AsyncFileSystem`) honestly when one is built.
-   - **Async reload** is *essential* complexity of the live-reload sub-problem in async
-     services — a blocking re-fetch parks the event loop under traffic. `reload_async`
-     belongs to the `[reload]` sub-problem and is decided at that stage (§8).
+   - **Async reload** (`reload_async`). **RESOLVED: ships (ADR 0050).** It is *essential*
+     complexity of the live-reload sub-problem in async services — a blocking re-fetch parks the
+     event loop under traffic — and `load_async` (the fetch half) already exists, so it is a thin
+     shell over the same swap/notify skeleton as sync `reload()`, differing only at the recompute
+     (`await load_async`) and an async-subscriber gather. With this and the fetch half, §14.2 #3
+     is fully resolved.
 4. **Resolution observability as first-class surface.** Provenance is already tracked
    (§6.4) and surfaced in errors; an `explain()`-style dump (merged snapshot +
    per-leaf source attribution, secrets masked) would attack the "breaks invisibly"

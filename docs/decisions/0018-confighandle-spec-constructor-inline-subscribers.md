@@ -2,8 +2,16 @@
 status: accepted
 date: 2026-06-06
 supersedes: "0012"
+amended-by: "0051"
 ---
 # ConfigHandle Constructor Revision: Spec-Only, No Loop, Inline Subscribers
+
+> **Amended by ADR 0051** on three points reconciled when `ConfigHandle` was implemented at
+> Stage 8: `reload()`/`reload_async()` return `-> T` (not `-> None`); the frozen-schema
+> rejection raises `SchemaError` (not `ValueError`); and the async-subscriber refusal moves from
+> registration time (an unknowable condition) to a `reload()`-time `RuntimeError`. The
+> constructor shape below (spec-only, no loop, inline sync subscribers, `[reload]` extra,
+> construction-time frozen enforcement) stands unchanged.
 
 ## Context and Problem Statement
 

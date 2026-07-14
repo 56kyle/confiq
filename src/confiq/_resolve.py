@@ -33,6 +33,7 @@ from confiq.exceptions import ErrorContext
 from confiq.exceptions import IntermediateBindTargetError
 from confiq.exceptions import MissingConfigError
 from confiq.exceptions import UnknownBindTargetError
+from confiq.exceptions import join_loc
 from confiq.source._source import AliasedSource
 from confiq.source._source import AsyncSource
 from confiq.source._source import BindingSource
@@ -349,8 +350,8 @@ def _validate(
         errors = exc.errors()
         contexts = tuple(
             ErrorContext(
-                field_path=_join_loc(detail["loc"]),
-                sources=_sources_for(provenance, _join_loc(detail["loc"])),
+                field_path=join_loc(detail["loc"]),
+                sources=_sources_for(provenance, join_loc(detail["loc"])),
             )
             for detail in errors
         )
@@ -396,10 +397,6 @@ def _write_path(data: dict[str, Any], parts: Sequence[str], value: object) -> No
     for part in parts[:-1]:
         current = cast("dict[str, object]", current[part])
     current[parts[-1]] = value
-
-
-def _join_loc(loc: Sequence[str | int]) -> str:
-    return ".".join(str(part) for part in loc)
 
 
 def _sources_for(provenance: Provenance, field_path: str) -> tuple[str, ...]:
