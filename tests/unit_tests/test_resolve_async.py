@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import time
 from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import BaseModel
 
 from confiq import MemorySource
+from confiq import SchemalessConfig
 from confiq._resolve import _fetch_one_async
 from confiq._resolve import resolve_async
 from confiq.exceptions import ConfigValidationError
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 
 
 _SLEEP_SECONDS = 0.05
-_CONCURRENCY_MARGIN = 1.5  # well under the ~2x serial baseline: concurrent gather must beat this
 
 
 class DbConfig(BaseModel):
@@ -90,6 +89,36 @@ class _SleepingAsyncSource:
         return copy.deepcopy(self._data)
 
 
+class _RendezvousAsyncSource:
+    """Async-only source that signals its own start then blocks until a peer has started.
+
+    Proves concurrent gather deterministically, with no wall-clock timing: fetch_async
+    sets its `started` event, then awaits `peer_started`. Cross-wire two of these and both
+    only ever return if the resolver awaits their fetch_async coroutines concurrently; a
+    serial gather would deadlock on the first source's wait for a peer that never runs.
+    """
+
+    def __init__(
+        self,
+        data: Mapping[str, Any],
+        *,
+        started: asyncio.Event,
+        peer_started: asyncio.Event,
+        name: str = "rendezvous",
+        profile: str | None = None,
+    ) -> None:
+        self._data: dict[str, Any] = copy.deepcopy(dict(data))
+        self._started = started
+        self._peer_started = peer_started
+        self.name = name
+        self.profile = profile
+
+    async def fetch_async(self) -> Mapping[str, Any]:
+        self._started.set()
+        await self._peer_started.wait()
+        return copy.deepcopy(self._data)
+
+
 class _DualSource:
     """Source implementing both colors, returning different data per color to prove preference."""
 
@@ -137,18 +166,25 @@ def test_resolve_async_with_sync_source_runs_inline_and_resolves() -> None:
     assert result.port == 8080
 
 
-def test_resolve_async_runs_async_sources_concurrently_not_serially() -> None:
-    sources = [
-        _SleepingAsyncSource({"host": "a"}, name="first"),
-        _SleepingAsyncSource({"port": 1}, name="second"),
-    ]
+def test_resolve_async_gathers_sources_concurrently() -> None:
+    async def _drive() -> DbConfig | SchemalessConfig:
+        first_started = asyncio.Event()
+        second_started = asyncio.Event()
+        sources = [
+            _RendezvousAsyncSource(
+                {"host": "a"}, started=first_started, peer_started=second_started, name="first"
+            ),
+            _RendezvousAsyncSource(
+                {"port": 1}, started=second_started, peer_started=first_started, name="second"
+            ),
+        ]
+        return await asyncio.wait_for(resolve_async(DbConfig, sources), timeout=5.0)
 
-    start = time.perf_counter()
-    result = asyncio.run(resolve_async(DbConfig, sources))
-    elapsed = time.perf_counter() - start
+    result = asyncio.run(_drive())
 
     assert isinstance(result, DbConfig)
-    assert elapsed < _SLEEP_SECONDS * _CONCURRENCY_MARGIN
+    assert result.host == "a"
+    assert result.port == 1
 
 
 def test_resolve_async_lets_later_listed_source_win_even_when_it_completes_first() -> None:
