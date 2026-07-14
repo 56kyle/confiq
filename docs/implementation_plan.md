@@ -80,11 +80,22 @@ It defines **stages and agent orchestration** — the order work happens, which 
 - **Design gate:** **YES — `ConfigHandle.current` property vs method (§14.1 #1); `on_reload(fn)` `(old,new)` arity + disconnect-return (§14.1 #3); async-reload scope (§14.2 #3, distinct from Stage 6 — async reload is argued essential to `[reload]`).**
 - **Test checkpoint:** reload/reentrancy/proxy integration tests.
 
-### Stage 9 — `pytest-confiq` companion plugin (new module)
+### Stage 9 — Remote + cloud sources (`[remote]` + cloud extras)
+*(Added post-Stage-8 audit: these were declared as extras from the start but never built; the
+prior plan jumped straight to the pytest plugin. This stage ships the declared-but-unwired
+sources so the published surface is honest.)*
+- **Modules:** wire the remote branch of `source/_file.py` (currently a `NotImplementedError`) to read via **fsspec** (`[remote]`, per-backend `[s3]`/`[gcs]`/`[adl]`), reusing the existing loader dispatch on the fetched bytes; and add the cloud secret/param sources `source/_aws.py`/`_gcp.py`/`_azure.py`/`_vault.py`/`_consul.py` (extras `[aws]`/`[gcp]`/`[azure]`/`[vault]`/`[consul]`), each behind `import_optional` and wrapping fetch failures in `SourceError`/`SourceNotFoundError` per the ADR 0040/0041 taxonomy. design_d §5.4 marks these PLANNED until this stage lands.
+- **Depends on / enables:** the `Source`/`SyncSource` protocol + loader dispatch (Stage 3), `import_optional` (Stage 3), the error taxonomy (Stage 1). Cloud SDKs are sync-first → sync `SyncSource`s (an `AsyncSource` here would be false structure, ADR 0035/0047); async-native cloud fetch is out of scope unless a concrete SDK warrants it.
+- **Design gate:** likely YES per source — each cloud store's auth/config surface (region/profile/credential chain, secret-path addressing) and whether its keys are flat (→ `aliases`-style translation, the flat-namespace family, ADR 0048) or already structured. Consider sub-splitting: remote `FileSource` first, then the secret stores individually. Draft an ADR for any non-trivial per-source decision.
+- **Test checkpoint:** per-source unit tests with the SDK/filesystem faked at the boundary (or `moto`/fsspec-memory), plus the `import_optional` extra-missing message contract.
+
+### Stage 10 — `pytest-confiq` companion plugin (new module, FINAL)
 - **Modules:** new package (the one piece with no skeleton yet) — `config` fixture over `MemorySource`, autouse isolation (scrub `os.environ`, chdir tmp — isolate *inputs*, never intercept `load()`, ADR 0016/0028), layering helpers over `spec_with`, autouse `LazyConfig.reset()` between tests, async support via `context.override`.
 - **Depends on / enables:** `MemorySource` (3), `spec_with`/`override` (5), `LazyConfig.reset` (8) — thin because the core carries the primitives.
-- **Design gate:** confirm package boundary + `pytest11` entry-point name; behavior constrained by ADR 0028.
+- **Design gate:** confirm package boundary + `pytest11` entry-point name (absent from `pyproject.toml` today) + the `[test]` extra (ADR 0016); behavior constrained by ADR 0028.
 - **Test checkpoint:** fixture contract + cross-test isolation.
+
+*(Deferred, user-timed — not a stage: backfill tests for the thin modules (`_imports.py`, `adapter/_kinds.py`, `_base_source.py`, the protocols) and re-enable the `fail_under=100` coverage gate once the whole surface, including these two stages, is present.)*
 
 ## Cross-cutting build guidance
 
