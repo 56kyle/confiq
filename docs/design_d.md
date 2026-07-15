@@ -309,16 +309,20 @@ class Loader(Protocol):
 |---|---|---|
 | `EnvSource(prefix=..., delimiter="__", *, aliases=...)` | environment variables | core (stdlib) |
 | `DotenvSource(path=".env", *, aliases=..., required=False)` | `.env` files | `[dotenv]` (python-dotenv) |
-| `FileSource(path, loader=..., *, required=True)` | local files | core for local I/O; `[remote]` (fsspec) for remote URIs — per-backend extras `[s3]`, `[gcs]`, `[adl]` pull the matching fsspec filesystem |
+| `FileSource(path, loader=..., *, required=True, storage_options=...)` | local + remote files | core for local I/O; `[remote]` (fsspec) for remote URIs — per-backend extras `[s3]`, `[gcs]`, `[adl]` pull the matching fsspec filesystem |
 | `MemorySource(mapping)` | in-process data; the testing workhorse | core |
 | `ClickSource` / `TyperSource` | consume an existing Click/Typer command | `[cli]` (click/typer) |
 | `ArgparseSource` | consume an argparse namespace | core (argparse is stdlib) |
 | cloud secret/param stores *(PLANNED)* | AWS/GCP/Azure/Vault/Consul | `[aws]`, `[gcp]`, `[azure]`, `[vault]`, `[consul]` |
 
-Everything above is shipped **except the rows marked *(PLANNED)*** and remote `FileSource`: the
-cloud secret/param sources have no code yet, and `FileSource` raises `NotImplementedError` on a
-remote URI. Those extras are declared but not yet wired; they land in the remote-and-cloud-sources
-stage. (Local sources, loaders, CLI, and the `aliases` machinery are fully implemented.)
+Everything above is shipped **except the rows marked *(PLANNED)***: the cloud secret/param sources
+have no code yet (their extras are declared but not wired; they land in their own stage). Remote
+`FileSource` **is** wired (ADR 0052) — a remote URI reads via fsspec, reusing the same loader
+dispatch as local; `storage_options` passes fsspec backend kwargs (credentials/region/endpoint),
+and a URI whose scheme needs an uninstalled backend (`s3://` without `[s3]`) raises the
+`pip install confiq[s3]` hint. A missing required remote object raises `SourceNotFoundError` just
+like a local one. (Local + remote files, loaders, CLI, and the `aliases` machinery are fully
+implemented.)
 
 Loaders: JSON (core), YAML (`[yaml]`), TOML (stdlib `tomllib` on 3.11+, `[toml]` otherwise).
 

@@ -1,8 +1,14 @@
 ---
 status: accepted
 date: 2026-07-12
+amended-by: "0052"
 ---
 # Source Presence: Per-Source `required` Flag and Typed `SourceNotFoundError`
+
+> **Amended by ADR 0052.** The `FileSource._read_remote` `NotImplementedError` deferral described
+> here is now wired (remote reads via fsspec). The `required` + `SourceNotFoundError` contract this
+> ADR defines extends to remote objects unchanged — a missing required remote object raises
+> `SourceNotFoundError`; not-required yields `{}`.
 
 ## Context and Problem Statement
 
