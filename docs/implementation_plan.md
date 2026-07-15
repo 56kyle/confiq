@@ -80,16 +80,36 @@ It defines **stages and agent orchestration** — the order work happens, which 
 - **Design gate:** **YES — `ConfigHandle.current` property vs method (§14.1 #1); `on_reload(fn)` `(old,new)` arity + disconnect-return (§14.1 #3); async-reload scope (§14.2 #3, distinct from Stage 6 — async reload is argued essential to `[reload]`).**
 - **Test checkpoint:** reload/reentrancy/proxy integration tests.
 
-### Stage 9 — Remote + cloud sources (`[remote]` + cloud extras)
-*(Added post-Stage-8 audit: these were declared as extras from the start but never built; the
-prior plan jumped straight to the pytest plugin. This stage ships the declared-but-unwired
-sources so the published surface is honest.)*
-- **Modules:** wire the remote branch of `source/_file.py` (currently a `NotImplementedError`) to read via **fsspec** (`[remote]`, per-backend `[s3]`/`[gcs]`/`[adl]`), reusing the existing loader dispatch on the fetched bytes; and add the cloud secret/param sources `source/_aws.py`/`_gcp.py`/`_azure.py`/`_vault.py`/`_consul.py` (extras `[aws]`/`[gcp]`/`[azure]`/`[vault]`/`[consul]`), each behind `import_optional` and wrapping fetch failures in `SourceError`/`SourceNotFoundError` per the ADR 0040/0041 taxonomy. design_d §5.4 marks these PLANNED until this stage lands.
-- **Depends on / enables:** the `Source`/`SyncSource` protocol + loader dispatch (Stage 3), `import_optional` (Stage 3), the error taxonomy (Stage 1). Cloud SDKs are sync-first → sync `SyncSource`s (an `AsyncSource` here would be false structure, ADR 0035/0047); async-native cloud fetch is out of scope unless a concrete SDK warrants it.
-- **Design gate:** likely YES per source — each cloud store's auth/config surface (region/profile/credential chain, secret-path addressing) and whether its keys are flat (→ `aliases`-style translation, the flat-namespace family, ADR 0048) or already structured. Consider sub-splitting: remote `FileSource` first, then the secret stores individually. Draft an ADR for any non-trivial per-source decision.
-- **Test checkpoint:** per-source unit tests with the SDK/filesystem faked at the boundary (or `moto`/fsspec-memory), plus the `import_optional` extra-missing message contract.
+### Stage 9 — Remote `FileSource` via fsspec (`[remote]` + `[s3]`/`[gcs]`/`[adl]`) — DONE
+*(Added post-Stage-8 audit; the original "remote + cloud" stage was narrowed to remote file
+reading only — fsspec is installed so it's real+testable, whereas the cloud SDKs are absent and
+`moto` isn't in the dev deps, so the cloud stores became their own Stage 10.)*
+- **Modules:** wired the remote branch of `source/_file.py` (was a raw `NotImplementedError`) to
+  read bytes via `fsspec.open`, reusing the existing loader dispatch. Raw-URI preservation (Windows
+  `Path` mangling fix), `storage_options` kwarg, proactive scheme→extra `import_optional` for a
+  confiq-branded install hint, exception mapping (missing→`SourceNotFoundError`/`{}` by `required`,
+  operational→`SourceError`). Sync-only (ADR 0047). → **ADR 0052** (amends 0040).
+- **Test checkpoint:** remote read/missing/malformed/branded-hint/`storage_options` tests against
+  fsspec `memory://` (dependency-free). Done.
 
-### Stage 10 — `pytest-confiq` companion plugin (new module, FINAL)
+### Stage 10 — Cloud secret/param sources (`[aws]`/`[gcp]`/`[azure]`/`[vault]`/`[consul]`)
+- **Modules:** `source/_aws.py` (Secrets Manager / Parameter Store), `_gcp.py` (Secret Manager),
+  `_azure.py` (Key Vault), `_vault.py` (HashiCorp Vault KV), `_consul.py` (Consul KV) — each a
+  built-in `SyncSource` behind `import_optional` (ADR 0006), wrapping fetch failures in
+  `SourceError`/`SourceNotFoundError` (ADR 0040/0041). Sync-only (SDKs are sync-first; async built-in
+  = false structure, ADR 0047/0035).
+- **PREREQUISITES (decide before building):** (1) **test infrastructure** — the SDKs (boto3, hvac,
+  google-cloud-secret-manager, azure, py-consul) + `moto` are NOT installed and not in the dev
+  deps; decide whether to add them + test against fakes (moto for AWS) or fake each SDK at the
+  `import_optional` boundary. (2) **payload/addressing model per backend** — does a source fetch one
+  secret-as-JSON (structured, config-path-shaped, no aliases) or a prefix of many (flat-namespace →
+  `aliases`, ADR 0048)? plus decoding (reuse `Loader`?), the constructor/credential surface (note
+  AWS's own `profile` collides with confiq's `profile` tag), and which SDK exception → absent
+  (`SourceNotFoundError`) vs operational (`SourceError`).
+- **Design gate:** YES per source — draft an ADR each. Sub-split (one source at a time) recommended.
+- **Test checkpoint:** per-source unit tests (faked SDK boundary / moto) + the extra-missing message.
+
+### Stage 11 — `pytest-confiq` companion plugin (new module, FINAL)
 - **Modules:** new package (the one piece with no skeleton yet) — `config` fixture over `MemorySource`, autouse isolation (scrub `os.environ`, chdir tmp — isolate *inputs*, never intercept `load()`, ADR 0016/0028), layering helpers over `spec_with`, autouse `LazyConfig.reset()` between tests, async support via `context.override`.
 - **Depends on / enables:** `MemorySource` (3), `spec_with`/`override` (5), `LazyConfig.reset` (8) — thin because the core carries the primitives.
 - **Design gate:** confirm package boundary + `pytest11` entry-point name (absent from `pyproject.toml` today) + the `[test]` extra (ADR 0016); behavior constrained by ADR 0028.
