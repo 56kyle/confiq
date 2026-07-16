@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from confiq.source._argparse import ArgparseSource
+from confiq.source._aws import AwsSecretsManagerSource
 from confiq.source._base_source import BaseSource
 from confiq.source._click import ClickSource
 from confiq.source._dotenv import DotenvSource
@@ -19,6 +20,7 @@ from confiq.source._typer import TyperSource
 __all__: list[str] = [
     "ArgparseSource",
     "AsyncSource",
+    "AwsSecretsManagerSource",
     "BaseSource",
     "BindingSource",
     "ClickSource",

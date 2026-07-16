@@ -313,10 +313,15 @@ class Loader(Protocol):
 | `MemorySource(mapping)` | in-process data; the testing workhorse | core |
 | `ClickSource` / `TyperSource` | consume an existing Click/Typer command | `[cli]` (click/typer) |
 | `ArgparseSource` | consume an argparse namespace | core (argparse is stdlib) |
-| cloud secret/param stores *(PLANNED)* | AWS/GCP/Azure/Vault/Consul | `[aws]`, `[gcp]`, `[azure]`, `[vault]`, `[consul]` |
+| `AwsSecretsManagerSource(secret_id, ...)` | AWS Secrets Manager | `[aws]` (boto3) |
+| cloud secret/param stores *(PLANNED)* | GCP/Azure/Vault/Consul + AWS Parameter Store | `[gcp]`, `[azure]`, `[vault]`, `[consul]` |
 
-Everything above is shipped **except the rows marked *(PLANNED)***: the cloud secret/param sources
-have no code yet (their extras are declared but not wired; they land in their own stage). Remote
+Everything above is shipped **except the rows marked *(PLANNED)***: **AWS Secrets Manager is wired**
+(ADR 0053 — the built-in cloud-source pattern; JSON `SecretString` decoded via a reused `Loader`,
+`ResourceNotFoundError`→`SourceNotFoundError`, `import_optional`-guarded), but the remaining cloud
+stores (GCP/Azure/Vault/Consul + AWS Parameter Store) have no code yet — they land per-backend in a
+later stage (their local test stories differ, so each is built and integration-tested on its own).
+Remote
 `FileSource` **is** wired (ADR 0052) — a remote URI reads via fsspec, reusing the same loader
 dispatch as local; `storage_options` passes fsspec backend kwargs (credentials/region/endpoint),
 and a URI whose scheme needs an uninstalled backend (`s3://` without `[s3]`) raises the
