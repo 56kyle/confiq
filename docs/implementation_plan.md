@@ -92,22 +92,29 @@ reading only — fsspec is installed so it's real+testable, whereas the cloud SD
 - **Test checkpoint:** remote read/missing/malformed/branded-hint/`storage_options` tests against
   fsspec `memory://` (dependency-free). Done.
 
-### Stage 10 — Cloud secret/param sources (`[aws]`/`[gcp]`/`[azure]`/`[vault]`/`[consul]`)
-- **Modules:** `source/_aws.py` (Secrets Manager / Parameter Store), `_gcp.py` (Secret Manager),
-  `_azure.py` (Key Vault), `_vault.py` (HashiCorp Vault KV), `_consul.py` (Consul KV) — each a
-  built-in `SyncSource` behind `import_optional` (ADR 0006), wrapping fetch failures in
-  `SourceError`/`SourceNotFoundError` (ADR 0040/0041). Sync-only (SDKs are sync-first; async built-in
-  = false structure, ADR 0047/0035).
-- **PREREQUISITES (decide before building):** (1) **test infrastructure** — the SDKs (boto3, hvac,
-  google-cloud-secret-manager, azure, py-consul) + `moto` are NOT installed and not in the dev
-  deps; decide whether to add them + test against fakes (moto for AWS) or fake each SDK at the
-  `import_optional` boundary. (2) **payload/addressing model per backend** — does a source fetch one
-  secret-as-JSON (structured, config-path-shaped, no aliases) or a prefix of many (flat-namespace →
-  `aliases`, ADR 0048)? plus decoding (reuse `Loader`?), the constructor/credential surface (note
-  AWS's own `profile` collides with confiq's `profile` tag), and which SDK exception → absent
-  (`SourceNotFoundError`) vs operational (`SourceError`).
-- **Design gate:** YES per source — draft an ADR each. Sub-split (one source at a time) recommended.
-- **Test checkpoint:** per-source unit tests (faked SDK boundary / moto) + the extra-missing message.
+### Stage 10 — Cloud secret/param sources (split per backend; test methodology differs)
+Split into per-backend sub-stages because each backend's local test story differs sharply (moto
+in-process for AWS; `-dev`-server binaries for Vault/Consul; NO local emulator for GCP/Azure —
+Azurite does not cover Key Vault, GCP ships none). Cloud sources are built-in `SyncSource`s behind
+`import_optional` (ADR 0006), error taxonomy per ADR 0040/0041, sync-only (ADR 0047/0035). The
+reusable cloud-source pattern is established by 10a → **ADR 0053**.
+
+- **Stage 10a — AWS Secrets Manager (`[aws]`, `moto`) — DONE.** `source/_aws.py`
+  `AwsSecretsManagerSource` — structured (JSON `SecretString` decoded via a reused `Loader`),
+  `ResourceNotFoundException`→`SourceNotFoundError`/`{}`, `profile_name` (credential) vs `profile`
+  (confiq tag) convention, binary-only→`SourceError`. Tested in-process with `moto` (`test-aws`
+  dependency group, fsspec-style optional; tests `importorskip`). → ADR 0053.
+- **Deferred to a later stage — real integration tests, not boundary fakes** (user decision):
+  - **AWS Parameter Store** — a *flat* source (`get_parameters_by_path` → `flat_to_nested`+`aliases`,
+    ADR 0048), joins `_aws.py`; moto-testable.
+  - **Consul KV** (`[consul]`) + **HashiCorp Vault KV** (`[vault]`) — flat; tested via
+    `consul agent -dev` / `vault server -dev` subprocess fixtures (a new fixture pattern; skip if the
+    binary is absent). Vault adds a KV v1/v2 envelope knob.
+  - **GCP Secret Manager** (`[gcp]`) + **Azure Key Vault** (`[azure]`) — **no local emulator exists**,
+    so gated **live-integration tests** (real creds, skipped by default) rather than hand-written
+    fakes. GCP structured (simplest); Azure has a structured-vs-flat fork + the `azure-identity`
+    credential chain.
+- **Design gate:** YES per remaining source — an ADR each, inheriting the ADR 0053 pattern.
 
 ### Stage 11 — `pytest-confiq` companion plugin (new module, FINAL)
 - **Modules:** new package (the one piece with no skeleton yet) — `config` fixture over `MemorySource`, autouse isolation (scrub `os.environ`, chdir tmp — isolate *inputs*, never intercept `load()`, ADR 0016/0028), layering helpers over `spec_with`, autouse `LazyConfig.reset()` between tests, async support via `context.override`.
