@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from typing import Annotated
 from typing import Optional
 
@@ -13,6 +14,10 @@ from pydantic import BaseModel
 from confiq._field import ConfigField
 from confiq.adapter._path_table import build_path_table
 from confiq.exceptions import SchemaError
+
+
+if TYPE_CHECKING:
+    from confiq._types import FieldAnnotations
 
 
 class PydanticEndpoint(BaseModel):
@@ -67,9 +72,9 @@ def _config_fields(extras: list[object]) -> list[ConfigField]:
     return [extra for extra in extras if isinstance(extra, ConfigField)]
 
 
-def _is_leaf(path: str, table: object) -> bool:
+def _is_leaf(path: str, table: FieldAnnotations) -> bool:
     prefix = f"{path}."
-    return not any(other.startswith(prefix) for other in table)  # type: ignore[union-attr]
+    return not any(other.startswith(prefix) for other in table)
 
 
 @pytest.mark.parametrize("schema", ALL_KINDS)
@@ -179,11 +184,11 @@ def test_build_path_table_with_mixed_wrap_order_preserves_config_field(path: str
 
 @dataclass
 class DanglingDataclass:
-    value: "DoesNotExist"  # type: ignore[name-defined]  # noqa: F821
+    value: "DoesNotExist"  # pyright: ignore[reportUndefinedVariable]  # noqa: F821  # dangling ref is the subject under test
 
 
 class DanglingTypedDict(typing_extensions.TypedDict):
-    value: "AlsoDoesNotExist"  # type: ignore[name-defined]  # noqa: F821
+    value: "AlsoDoesNotExist"  # pyright: ignore[reportUndefinedVariable]  # noqa: F821  # dangling ref is the subject under test
 
 
 @pytest.mark.parametrize(

@@ -101,9 +101,9 @@ def test_yaml_loader_parse_with_empty_or_null_returns_empty_mapping(raw: bytes) 
 
 
 def test_yaml_loader_parse_with_malformed_content_raises_yaml_error() -> None:
-    yaml = pytest.importorskip("yaml")
+    yaml = pytest.importorskip("yaml")  # pyright: ignore[reportAny]  # optional-dep module attr is Any
 
-    with pytest.raises(yaml.YAMLError):
+    with pytest.raises(yaml.YAMLError):  # pyright: ignore[reportAny]  # optional-dep module attr is Any
         YamlLoader().parse(b"key: : bad")
 
 

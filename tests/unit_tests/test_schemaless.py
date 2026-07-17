@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from confiq._schemaless import SchemalessConfig
@@ -16,7 +18,7 @@ def test_schemaless_config_getitem_returns_value() -> None:
 def test_schemaless_config_getitem_with_nested_mapping_wraps_recursively() -> None:
     config = SchemalessConfig({"database": {"host": "localhost"}})
 
-    nested = config["database"]
+    nested = cast("object", config["database"])
 
     assert isinstance(nested, SchemalessConfig)
     assert nested["host"] == "localhost"
@@ -38,7 +40,7 @@ def test_schemaless_config_is_read_only() -> None:
     config = SchemalessConfig({"host": "localhost"})
 
     with pytest.raises(TypeError):
-        config["host"] = "other"  # type: ignore[index]
+        config["host"] = "other"  # pyright: ignore[reportIndexIssue]  # read-only by design; pins the runtime refusal
 
 
 def test_schemaless_config_repr_is_readable() -> None:
