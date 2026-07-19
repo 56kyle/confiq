@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import ModuleType
 from typing import Any
 
 from confiq._imports import import_optional
@@ -23,7 +24,7 @@ class YamlLoader:
         Lets PyYAML's error surface for the source to wrap; refuses a non-mapping
         top level.
         """
-        yaml = import_optional("yaml", extra="yaml")
+        yaml: ModuleType = import_optional("yaml", extra="yaml")
         parsed: object = yaml.safe_load(raw)  # pyright: ignore[reportAny]  # optional-dep module attr is Any
         if parsed is None:
             return {}

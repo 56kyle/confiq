@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Mapping
+from types import ModuleType
 from typing import Any
 
 from confiq._imports import import_optional
@@ -25,13 +26,13 @@ class TomlLoader:
         Lets the decoder's error surface for the source to wrap; refuses a
         non-mapping top level.
         """
-        text = raw.decode("utf-8")
+        text: str = raw.decode("utf-8")
         if not text.strip():
             return {}
         if sys.version_info >= (3, 11):
             import tomllib
 
-            module = tomllib
+            module: ModuleType = tomllib
         else:
-            module = import_optional("tomli", extra="toml")
+            module: ModuleType = import_optional("tomli", extra="toml")
         return ensure_mapping(module.loads(text))  # pyright: ignore[reportAny]  # optional-dep module attr is Any

@@ -20,7 +20,7 @@ class Loader(Protocol):
         ...
 
 
-_NON_MAPPING_MESSAGE = "top-level must be a mapping"
+_NON_MAPPING_MESSAGE: str = "top-level must be a mapping"
 
 
 def ensure_mapping(value: object) -> dict[str, Any]:

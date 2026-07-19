@@ -22,4 +22,4 @@ class JsonLoader:
         """
         if not raw.strip():
             return {}
-        return ensure_mapping(json.loads(raw))  # pyright: ignore[reportAny]  # stdlib json returns Any
+        return ensure_mapping(json.loads(raw))  # pyright: ignore[reportAny]

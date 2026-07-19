@@ -22,7 +22,7 @@ def default_loaders() -> dict[str, Loader]:
 
 
 def loader_for_suffix(suffix: str) -> Loader | None:
-    """Return a loader for the given file suffix, or None if unrecognised.
+    """Return a loader for the given file suffix, or None if unrecognized.
 
     Unknown suffixes return None so FileSource can raise a SourceError naming the
     path rather than surfacing an opaque KeyError.
