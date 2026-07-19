@@ -29,7 +29,7 @@ def leaf_paths(table: FieldAnnotations) -> frozenset[str]:
     keys, so they are excluded; only true leaves are bindable by CLI name convention or an
     explicit ConfigBind target.
     """
-    keys = set(table)
+    keys: set[str] = set(table)
     return frozenset(
         key for key in keys if not any(other != key and other.startswith(f"{key}.") for other in keys)
     )
@@ -51,7 +51,7 @@ def build_path_table(schema: type[Any]) -> FieldAnnotations:
 
 def _walk(schema: object, prefix: str, table: dict[str, list[Any]]) -> None:
     for name, field_type, extras in _read_fields(schema):
-        path = f"{prefix}.{name}" if prefix else name
+        path: str = f"{prefix}.{name}" if prefix else name
         table[path] = extras
         if is_supported_nested_kind(field_type):
             _walk(field_type, path, table)
@@ -73,9 +73,9 @@ def _read_field_infos(fields: Mapping[str, FieldInfo]) -> Iterator[tuple[str, ob
 
 def _read_type_hint_fields(schema: object) -> Iterator[tuple[str, object, list[Any]]]:
     try:
-        hints = cast("dict[str, object]", get_type_hints(schema, include_extras=True))
+        hints: dict[str, object] = get_type_hints(schema, include_extras=True)
     except NameError as exc:
-        schema_name = getattr(schema, "__name__", repr(schema))
+        schema_name: str = getattr(schema, "__name__", repr(schema))
         raise SchemaError(
             f"could not resolve type hints for schema {schema_name}: unresolved forward reference {exc.name!r}",
         ) from exc
@@ -88,12 +88,13 @@ def _unwrap_field_type(hint: object) -> tuple[object, list[Any]]:
     """Strips Annotated (collecting extras) and Required/NotRequired wrappers in any order."""
     extras: list[Any] = []
     while True:
-        origin = get_origin(hint)
+        origin: object = get_origin(hint)
+        hint: object
         if origin is Annotated:
-            args = get_args(hint)
-            extras = list(args[1:]) + extras
-            hint = cast("object", args[0])
+            args: tuple[object, ...] = get_args(hint)
+            extras: list[Any] = list(args[1:]) + extras
+            hint: object = args[0]
         elif origin is Required or origin is NotRequired:
-            hint = cast("object", get_args(hint)[0])
+            hint: object = cast("object", get_args(hint)[0])
         else:
             return hint, extras
