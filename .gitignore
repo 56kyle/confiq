@@ -76,3 +76,5 @@ node_modules/
 
 # Release Notes
 body.md
+
+.claude/
