@@ -120,7 +120,7 @@ def security_python(session: Session) -> None:
 def tests_python(session: Session) -> None:
     """Run the Python test suite (pytest with coverage)."""
     session.log("Installing test dependencies...")
-    session.install("-e", ".", "--group", "dev")
+    session.install("-e", ".", "--group", "dev", "--all-extras")
 
     session.log(f"Running test suite with py{session.python}.")
     test_results_dir = TESTS_FOLDER / "results"
