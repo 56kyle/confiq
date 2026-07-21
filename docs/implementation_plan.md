@@ -102,8 +102,9 @@ reusable cloud-source pattern is established by 10a → **ADR 0053**.
 - **Stage 10a — AWS Secrets Manager (`[aws]`, `moto`) — DONE.** `source/_aws.py`
   `AwsSecretsManagerSource` — structured (JSON `SecretString` decoded via a reused `Loader`),
   `ResourceNotFoundException`→`SourceNotFoundError`/`{}`, `profile_name` (credential) vs `profile`
-  (confiq tag) convention, binary-only→`SourceError`. Tested in-process with `moto` (`test-aws`
-  dependency group, fsspec-style optional; tests `importorskip`). → ADR 0053.
+  (confiq tag) convention, binary-only→`SourceError`. Tested in-process with `moto` (in the `dev`
+  group since 2026-07-20; `boto3` from the `[aws]` extra, which `nox -s tests-python` now installs
+  via the `[all]` extra — tests still `importorskip` so a bare `uv sync` skips them). → ADR 0053.
 - **Deferred to a later stage — real integration tests, not boundary fakes** (user decision):
   - **AWS Parameter Store** — a *flat* source (`get_parameters_by_path` → `flat_to_nested`+`aliases`,
     ADR 0048), joins `_aws.py`; moto-testable.

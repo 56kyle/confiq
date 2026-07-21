@@ -72,7 +72,16 @@ required=True, profile=None)`, and six decisions that generalize:
 in-process reimplementation of the service, the highest-fidelity option that needs no server or
 container. The test tooling (`boto3` + `moto`) lives in a **dedicated `test-aws` dependency group**
 (not `dev`), fsspec-style optional: the tests `pytest.importorskip` boto3/moto and skip when the
-group isn't installed. Each later cloud backend gets its own test approach + tooling group
+group isn't installed.
+
+**Update (2026-07-20, `d1eb886` + `5b9f670`):** the dedicated group was collapsed — `moto` moved
+into `dev`, `boto3` comes from the `[aws]` extra, and `nox -s tests-python` now syncs
+`--group dev --all-extras`. The `importorskip` guards stay (they still hold for a bare
+`uv sync`), but the AWS tests now *run* in the canonical nox session instead of skipping. The
+second Negative consequence below is superseded accordingly; the per-backend split of Stage 10
+(the decision this section supports) is unaffected.
+
+Each later cloud backend gets its own test approach + tooling group
 (GCP/Azure: gated live-integration tests, no local emulator; Vault/Consul: `-dev`-server subprocess
 fixtures) — which is precisely why Stage 10 is split per backend rather than shipped as one.
 
@@ -88,9 +97,10 @@ fixtures) — which is precisely why Stage 10 is split per backend rather than s
 - One structured backend (Secrets Manager) doesn't exercise the flat/`aliases` path — that lands
   with the first flat cloud source (Parameter Store / Consul). Accepted: establishing the structured
   pattern cleanly first keeps this ADR's statement uncluttered.
-- The `test-aws` tooling is opt-in, so these tests skip in a bare environment (nox installs only
-  `--group dev`). Consistent with how every other extra's tests already behave; a CI decision to
-  install the extras/groups is separate.
+- ~~The `test-aws` tooling is opt-in, so these tests skip in a bare environment (nox installs only
+  `--group dev`).~~ **Superseded 2026-07-20** — see the Update in *Test methodology*: `moto` is in
+  `dev` and nox syncs `--all-extras`, so these tests run in the canonical session. Only a bare
+  `uv sync` still skips them.
 
 ## Relationship to prior ADRs
 Instantiates ADR 0006 (built-in cloud sources + extras). Applies ADR 0040/0041 (error taxonomy) and
