@@ -72,6 +72,10 @@ It defines **stages and agent orchestration** — the order work happens, which 
 - **Contract pinned:** consumer binding (`database_host` ↔ `database.host`), ambiguity `SchemaError`, `ConfigBind`/`ConfigBind(None)`, eager-snapshot replay determinism, `options_from` forward-convention agreement.
 - **Design gate:** NO new §14 items (confirm Typer→Click asymmetry stays documented-not-promised, §10.5).
 - **Test checkpoint:** binding + replay integration tests.
+- **Post-stage fix (2026-07-20):** typer 0.26.0 vendored Click into the private `typer._click`,
+  breaking `TyperSource`'s inherited `click.get_current_context()` grab. Context acquisition is now
+  an ordered per-class module list (vendored first, real click as the pre-0.26 fallback) and the
+  `[cli]` extra split into `[click]`/`[typer]` (`[cli]` keeps both). → **ADR 0054** (amends 0032).
 
 ### Stage 8 — Reload + lazy proxy (`[reload]`)
 - **Modules:** `_locks.py` `ReentrancyGuard`; `_handle.py` `ConfigHandle` (frozen-schema rejection, copy-on-write reload/reload_async, atomic swap, blinker `on_reload`, inline subscribers); `_lazy.py` `LazyConfig` + `_LazyProxy` (bind/reset/bound; override-aware validated snapshot overlay, ADR 0031).

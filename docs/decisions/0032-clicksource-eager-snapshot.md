@@ -49,11 +49,14 @@ ambient grab to the constructor, the one place the user visibly wrote `TyperSour
 ### Contract
 
 At construction, `ClickSource` (and `TyperSource`, which shares the mechanism since
-Typer's context is a Click context):
+Typer's context is a Click context — **premise falsified by typer 0.26.0's vendored Click;
+acquisition amended by ADR 0054, snapshot contract below unchanged**):
 
 1. Calls `click.get_current_context()` — raising `RuntimeError` with a clear message if
    no Click invocation is active (already specified), and `ImportError` with an install
-   hint if click is absent.
+   hint if click is absent. **(Amended by ADR 0054: the context is acquired from an
+   ordered list of provider modules — Typer's vendored stack first for `TyperSource` —
+   with the same failure modes.)**
 2. Reads, for every parameter: its value, whether it was explicitly set
    (`ctx.get_parameter_source()` not in {`DEFAULT`, `DEFAULT_MAP`}), and its binding
    marker (`ConfigBind` from the command callback's annotations, or the attached path

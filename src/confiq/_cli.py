@@ -35,7 +35,7 @@ def options_from(schema: type[Any]) -> list[Any]:
     Each option is a ConfiqOption carrying its confiq_path, defaults to the unset sentinel
     (None) so defaults live only in the schema, and takes the flag the name↔path convention
     produces forward: dotted path → underscore-joined parameter → --kebab-case flag. Requires
-    click (confiq[cli]).
+    click (confiq[click]).
     """
     option_type = _confiq_option_type()
     table = build_path_table(schema)
@@ -50,7 +50,7 @@ def _flag_for(path: str) -> str:
 @lru_cache(maxsize=1)
 def _confiq_option_type() -> type[Any]:
     """Build the ConfiqOption class, deferring its optional click base to call time (ADR 0032)."""
-    click = import_optional("click", extra="cli")
+    click = import_optional("click", extra="click")
 
     class ConfiqOption(click.Option):  # pyright: ignore[reportUntypedBaseClass, reportAny]  # optional-dep base is Any
         """A click.Option carrying the schema leaf path it was generated for (ADR 0027, 0049)."""

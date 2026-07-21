@@ -311,7 +311,7 @@ class Loader(Protocol):
 | `DotenvSource(path=".env", *, aliases=..., required=False)` | `.env` files | `[dotenv]` (python-dotenv) |
 | `FileSource(path, loader=..., *, required=True, storage_options=...)` | local + remote files | core for local I/O; `[remote]` (fsspec) for remote URIs — per-backend extras `[s3]`, `[gcs]`, `[adl]` pull the matching fsspec filesystem |
 | `MemorySource(mapping)` | in-process data; the testing workhorse | core |
-| `ClickSource` / `TyperSource` | consume an existing Click/Typer command | `[cli]` (click/typer) |
+| `ClickSource` / `TyperSource` | consume an existing Click/Typer command | `[click]` / `[typer]` — `[cli]` installs both (ADR 0054) |
 | `ArgparseSource` | consume an argparse namespace | core (argparse is stdlib) |
 | `AwsSecretsManagerSource(secret_id, ...)` | AWS Secrets Manager | `[aws]` (boto3) |
 | cloud secret/param stores *(PLANNED)* | GCP/Azure/Vault/Consul + AWS Parameter Store | `[gcp]`, `[azure]`, `[vault]`, `[consul]` |
@@ -813,7 +813,7 @@ def main(
   against `parser.get_default()` is the degraded fallback (it cannot tell a user-supplied
   value that equals the default).
 
-`ClickSource`/`TyperSource` capture the active Click `Context` **eagerly at
+`ClickSource`/`TyperSource` capture the active command `Context` **eagerly at
 construction**: the explicitly-set parameters, their values, and their binding markers
 are read into an immutable snapshot, and no `Context` reference survives `__init__`.
 `fetch()` is a pure replay of that snapshot, so a CLI source held in a `ResolutionSpec`
@@ -821,7 +821,10 @@ behaves deterministically under `ConfigHandle.reload()` — files and env re-rea
 layer replays the invocation, which has not changed. The `get_current_context()` grab in
 the constructor is the library's one documented use of ambient state, confined to the
 line where the user visibly wrote the constructor call inside a running command.
-(ADR 0032.)
+(ADR 0032.) Since typer 0.26.0 vendored Click privately, `TyperSource` reads Typer's own
+context stack first and falls back to click's for typer < 0.26 (ADR 0054); the two sources
+still share one capture path, because the two `Context` types remain structurally identical
+for everything the snapshot reads.
 
 ### 10.4 Opt-in generator
 
@@ -841,13 +844,19 @@ snapshot step prefers that attached path over annotations over convention, on bo
 | | Consume (read what the user set) | Generate (emit options from schema) |
 |---|---|---|
 | Click | easy — `Context` + `get_parameter_source()` | easy — imperative (`params=[...]`) |
-| Typer | easy — Click underneath | awkward — signature-driven; params can't be injected |
+| Typer | easy — its own `Context`, structurally Click's | awkward — signature-driven; params can't be injected |
 | argparse | awkward — sentinel needed, no annotations | easy — imperative (`add_argument`) |
 
 Each framework is hard on exactly one side; Click is easy on both. The generator therefore
-lives most naturally at the Click layer; Typer generation needs a drop-to-Click path or a
-Typer-aware command factory. This asymmetry is documented rather than hidden behind a promise
-of symmetric behavior.
+lives most naturally at the Click layer. This asymmetry is documented rather than hidden behind
+a promise of symmetric behavior.
+
+**Typer generation has no drop-to-Click path (typer ≥ 0.26).** Vendoring made Typer's option
+and command classes a separate lineage from the installed click's, and upstream withdrew
+Click-level interop outright, so `options_from`'s `click.Option` objects cannot be handed to a
+Typer app. Typer generation, if it is ever built, needs a Typer-aware command factory emitting
+Typer's own parameters — not a bridge. Consumption is unaffected: `TyperSource` reads Typer's
+context stack directly (ADR 0054).
 
 ### 10.6 Bootstrapping ambient config in the app callback
 
@@ -964,7 +973,7 @@ override-aware design in §8.4 is what avoids that fork.)
 The governing rule (Koanf-style): **the core depends on nothing optional.** Core runtime
 dependencies are `pydantic` (≥2), `pluggy`, and `typing-extensions` (for `Self`/`Protocol`
 back-compat on the 3.10 floor). Everything else sits behind an extra:
-CLI frameworks (`[cli]`), dotenv (`[dotenv]`), non-stdlib loaders (`[yaml]`, `[toml]`), remote
+CLI frameworks (`[click]`, `[typer]`; `[cli]` for both), dotenv (`[dotenv]`), non-stdlib loaders (`[yaml]`, `[toml]`), remote
 filesystems (`[remote]`, fsspec), cloud SDKs (`[aws]`/`[gcp]`/`[vault]`), and the
 **live-reload layer** — `ConfigHandle`, its notification machinery, and `blinker` — behind
 `[reload]`. A user who only reads environment variables installs nothing but the core, and the
