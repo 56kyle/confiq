@@ -99,7 +99,7 @@ def lint_python(session: Session) -> None:
 def typecheck(session: Session) -> None:
     """Run static type checking (Basedpyright) on Python code."""
     session.log("Installing type checking dependencies...")
-    session.install("-e", ".", "--group", "dev")
+    session.install("-e", ".[all]", "--group", "dev")
     python_path: Path = Path(shutil.which("python", path=session.bin))
 
     session.log(f"Running Basedpyright check with py{session.python}.")
@@ -120,7 +120,7 @@ def security_python(session: Session) -> None:
 def tests_python(session: Session) -> None:
     """Run the Python test suite (pytest with coverage)."""
     session.log("Installing test dependencies...")
-    session.install("-e", ".", "--group", "dev", "--all-extras")
+    session.install("-e", ".[all]", "--group", "dev")
 
     session.log(f"Running test suite with py{session.python}.")
     test_results_dir = TESTS_FOLDER / "results"
