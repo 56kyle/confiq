@@ -32,6 +32,7 @@ from confiq.exceptions import UnknownBindTargetError
 from confiq.source._argparse import ArgparseSource
 from confiq.source._aws import AwsSecretsManagerSource
 from confiq.source._click import ClickSource
+from confiq.source._click import CommandContext
 from confiq.source._dotenv import DotenvSource
 from confiq.source._env import EnvSource
 from confiq.source._file import FileSource
@@ -73,6 +74,7 @@ __all__: list[str] = [
     "ArgparseSource",
     "AwsSecretsManagerSource",
     "ClickSource",
+    "CommandContext",
     "DotenvSource",
     "EnvSource",
     "FileSource",

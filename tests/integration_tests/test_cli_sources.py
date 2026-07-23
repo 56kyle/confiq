@@ -9,6 +9,8 @@ against a nested schema's path table. No mocks — the seam under test is the fr
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import re
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import cast
@@ -31,6 +33,7 @@ from confiq import load
 from confiq import options_from
 from confiq._cli import _confiq_option_type
 from confiq.exceptions import ConfigValidationError
+from confiq.source._click import NO_ACTIVE_CONTEXT_MESSAGE_TEMPLATE
 
 
 if TYPE_CHECKING:
@@ -58,6 +61,13 @@ class _OptionView(Protocol):
 
 
 _BASE: Mapping[str, Any] = {"database": {"host": "base-host", "port": 1}}
+
+# ADR 0054's provenance fix only bites where typer vendors its own Click fork (typer>=0.26): there the
+# vendored context stack is present-but-empty inside a pure Click command, so a TyperSource() must raise
+# rather than silently capturing the Click bindings under cli:typer. Under typer<0.26 there is no
+# typer._click, so that same construction legitimately falls through to real Click and succeeds (the
+# supported pre-vendoring path). The tests below split on which environment is running.
+_TYPER_VENDORS_CLICK = importlib.util.find_spec("typer._click") is not None
 
 
 def test_click_source_lets_explicitly_set_options_win_at_their_bound_paths() -> None:
@@ -126,7 +136,8 @@ def test_click_source_replays_a_frozen_snapshot_without_a_live_context() -> None
 
 
 def test_click_source_constructed_outside_an_invocation_raises_runtime_error() -> None:
-    with pytest.raises(RuntimeError, match="Click"):
+    expected = NO_ACTIVE_CONTEXT_MESSAGE_TEMPLATE.format(framework=ClickSource._FRAMEWORK)
+    with pytest.raises(RuntimeError, match=re.escape(expected)):
         ClickSource()
 
 
@@ -146,6 +157,36 @@ def test_typer_source_binds_via_convention_and_config_bind_through_typer_wrappin
     assert result.exit_code == 0, result.output
     assert captured["cfg"].database.host == "typer-host"
     assert captured["cfg"].database.port == 8080
+
+
+@pytest.mark.skipif(not _TYPER_VENDORS_CLICK, reason="typer<0.26 does not vendor Click at typer._click")
+def test_typer_source_inside_a_pure_click_command_raises_when_click_is_vendored() -> None:
+    @click.command()
+    @click.option("--db-port")
+    def cmd(db_port: str) -> None:
+        TyperSource()
+
+    result = CliRunner().invoke(cmd, ["--db-port", "8080"])
+
+    expected = NO_ACTIVE_CONTEXT_MESSAGE_TEMPLATE.format(framework=TyperSource._FRAMEWORK)
+    assert isinstance(result.exception, RuntimeError)
+    assert str(result.exception) == expected
+
+
+@pytest.mark.skipif(_TYPER_VENDORS_CLICK, reason="typer>=0.26 vendors Click, so the fallthrough is gone")
+def test_typer_source_inside_a_pure_click_command_falls_through_to_click_when_not_vendored() -> None:
+    captured: dict[str, TyperSource] = {}
+
+    @click.command()
+    @click.option("--db-port")
+    def cmd(db_port: str) -> None:
+        captured["source"] = TyperSource()
+
+    result = CliRunner().invoke(cmd, ["--db-port", "8080"])
+
+    assert result.exit_code == 0, result.output
+    bindings = captured["source"].raw_bindings()
+    assert [(binding.name, binding.value) for binding in bindings] == [("db_port", "8080")]
 
 
 def test_argparse_source_with_suppress_defaults_only_contributes_set_args() -> None:

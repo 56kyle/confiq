@@ -4,6 +4,37 @@ date: 2026-07-20
 ---
 # `TyperSource` Acquires Its Context From Typer's Vendored Click, With a Fallback
 
+**Update (2026-07-23): fallthrough narrowed to module absence only, second Negative resolved,
+optional `context=` and public `CommandContext` added.**
+
+- **Fallthrough narrowed from three conditions to one (absence only).** The empty-stack and
+  missing-`get_current_context`-attribute fallthrough conditions in *Decision Outcome* below (two of
+  the three "try the next provider" cases) are **retracted** as an over-generalization. The fallback
+  exists solely to serve typer 0.15–0.25, but pre-0.26 typer has no `typer._click` module at all, so
+  that support path is reached by module **absence**, never by a present-but-empty stack. The
+  empty-stack fallthrough was unnecessary, and it was exactly what let a `TyperSource()` built inside
+  a pure Click command (typer >= 0.26 with click also installed — "shape 3") fall past the empty
+  `typer._click.globals` to the live `click.globals`, stamping Click params `cli:typer`. Now the
+  first **importable** module is authoritative: it yields its live context, or the branded
+  `RuntimeError`. A present-but-empty module never falls through — only an absent one advances to
+  the next provider.
+- **The second Negative is resolved.** The original Negative that the vendored-over-real-click
+  preference order "is not pinned behaviourally" — because exercising it needed two live stacks,
+  fabricable only by faking `typer._click.globals` in `sys.modules` — no longer applies. Under
+  presence-based semantics there is no live-context preference order to fabricate: a present module
+  is authoritative whether or not a later one is live. The shape-3 close is pinned by a real,
+  mockless test (pure Click command with typer importable → `TyperSource()` raises rather than
+  mislabeling).
+- **Optional `context=` added.** `ClickSource.__init__` takes a keyword-only
+  `context: CommandContext | None = None`; when given, ambient acquisition is skipped and that
+  context is snapshotted directly. Additive — it does not disturb ADR 0032's ambient default, and
+  the passed context is snapshotted-then-discarded under the same eager-snapshot contract (no
+  reference survives `__init__`). `TyperSource` inherits it with no override.
+- **`_CommandContextLike` promoted to public `CommandContext`.** With `context=` public, its type is
+  public too, completing this ADR's structural-typing sub-decision: the boundary now has a public
+  structural type because it is a public parameter. The supporting `_ParameterLike` / `_CommandLike`
+  / `_ParameterSourceLike` protocols stay private.
+
 ## Context and Problem Statement
 
 ADR 0032 built `ClickSource`/`TyperSource` on a premise it stated in one clause: `TyperSource`
@@ -53,13 +84,15 @@ context **acquisition** diverged; the capture mechanism did not.
 Chosen option: **Option A**. Each source class declares an ordered tuple of context-stack provider
 modules; acquisition tries them in order and takes the first live context.
 
-- `ClickSource._CONTEXT_STACK_PROVIDERS = ("click.globals",)`
-- `TyperSource._CONTEXT_STACK_PROVIDERS = ("typer._click.globals", "click.globals")`
+- `ClickSource._CONTEXT_STACK_MODULES = ("click.globals",)`
+- `TyperSource._CONTEXT_STACK_MODULES = ("typer._click.globals", "click.globals")`
 
-Three conditions mean "try the next provider" — the module is not importable, it has no
-`get_current_context`, or that call raises `RuntimeError` because nothing is active. Any other
-exception propagates. When every provider is exhausted, the branded `RuntimeError` is raised,
-message unchanged.
+~~Three conditions mean "try the next provider" — the module is not importable, it has no
+`get_current_context`, or that call raises `RuntimeError` because nothing is active.~~ **Narrowed
+2026-07-23** (see the Update above): only an absent module ("try the next provider") advances;
+present-but-empty (no `get_current_context`, or an empty-stack `RuntimeError`) is authoritative and
+raises immediately. Any other exception propagates. When every provider is exhausted, the branded
+`RuntimeError` is raised, message unchanged.
 
 The fallback is not defensive padding: for typer 0.15–0.25 the real click stack is *exactly* where a
 Typer context lives, so the second entry is the pre-0.26 support path, and it is what makes the
@@ -114,14 +147,17 @@ reads as a decision rather than an oversight.
   fallthrough is restricted to a `ModuleNotFoundError` naming the requested module itself. The nox
   session resolves dependencies unpinned, so CI meets such a change as a failing test rather than
   as a user's bug report.
-- The vendored-over-real-click *preference order* is not pinned **behaviourally**. Exercising it
+- ~~The vendored-over-real-click *preference order* is not pinned **behaviourally**. Exercising it
   requires two live context stacks at once, which is only fabricable by faking
   `typer._click.globals` in `sys.modules` — a mock of the exact boundary under test, and thus
-  worthless as evidence. What is pinned instead: every `_context_from` outcome against real modules,
-  fallthrough past an unavailable module, the end-to-end Typer invocation under whichever typer is
-  installed, and a direct literal assertion on `TyperSource._CONTEXT_STACK_MODULES` — literal by
-  intent, because the ordering and the exact private path *are* the fix, so a reorder or a
-  well-meaning cleanup of the private coupling fails loudly. Stated rather than papered over.
+  worthless as evidence.~~ **Superseded 2026-07-23** (see the Update above): presence-based semantics
+  remove the live-context preference order entirely — a present module is authoritative regardless of
+  a later one — so there is nothing to fabricate, and the shape-3 close is now pinned by a real,
+  mockless test. What remains pinned: every `_context_from` outcome against real modules, fallthrough
+  past an absent module, the end-to-end Typer invocation under whichever typer is installed, and a
+  direct literal assertion on `TyperSource._CONTEXT_STACK_MODULES` — literal by intent, because the
+  ordering and the exact private path *are* the fix, so a reorder or a well-meaning cleanup of the
+  private coupling fails loudly.
 - Two extras where there was one, plus an alias, is more surface to document.
 
 ## Pros and Cons of the Options

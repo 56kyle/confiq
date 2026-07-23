@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import importlib
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -34,6 +35,17 @@ NO_ACTIVE_CONTEXT_MESSAGE_TEMPLATE = (
 )
 
 
+class _ContextOutcome(enum.Enum):
+    """A context-stack module that yielded no live context: absent entirely, or present but empty.
+
+    ABSENT means fall through to the next provider; NO_CONTEXT means this provider is authoritative
+    and empty, so acquisition stops rather than reaching a later stack (ADR 0054).
+    """
+
+    ABSENT = enum.auto()
+    NO_CONTEXT = enum.auto()
+
+
 class _ParameterLike(Protocol):
     """The parameter surface capture needs: a name."""
 
@@ -58,7 +70,7 @@ class _CommandLike(Protocol):
     def callback(self) -> Callable[..., Any] | None: ...
 
 
-class _CommandContextLike(Protocol):
+class CommandContext(Protocol):
     """The invocation-context surface capture needs, satisfied by both real and vendored Click.
 
     Typer >= 0.26 vendors its own Click fork, whose Context is structurally identical here but is
@@ -92,14 +104,17 @@ class ClickSource(BaseSource):
     _INSTALL_EXTRA: ClassVar[str] = "click"
     _CONTEXT_STACK_MODULES: ClassVar[tuple[str, ...]] = ("click.globals",)
 
-    def __init__(self, *, profile: str | None = None) -> None:
+    def __init__(self, *, profile: str | None = None, context: CommandContext | None = None) -> None:
         """Capture the explicitly-set parameters of the active command as immutable RawBindings.
 
-        Raises ImportError if the framework's extra is missing, and RuntimeError if constructed
-        outside an active command invocation.
+        Raises ImportError if the framework's extra is missing, and RuntimeError if ambient
+        acquisition finds no active command invocation. Passing context= bypasses ambient
+        acquisition and snapshots that context directly; no reference to it survives __init__
+        (ADR 0032).
         """
         _ = import_optional(self._EXTRA_MODULE, extra=self._INSTALL_EXTRA)
-        context = _current_command_context(self._FRAMEWORK, self._CONTEXT_STACK_MODULES)
+        if context is None:
+            context = _current_command_context(self._FRAMEWORK, self._CONTEXT_STACK_MODULES)
         self._bindings: tuple[RawBinding, ...] = _capture_bindings(context)
         self.profile = profile
 
@@ -111,30 +126,37 @@ class ClickSource(BaseSource):
         return self._bindings
 
 
-def _current_command_context(framework: str, module_names: Sequence[str]) -> _CommandContextLike:
-    """Return the active context from the first context-stack module offering one, else raise RuntimeError."""
+def _current_command_context(framework: str, module_names: Sequence[str]) -> CommandContext:
+    """Return the active context from the first present context-stack module, else raise RuntimeError.
+
+    A present-but-empty module is authoritative: acquisition stops and raises rather than falling
+    through to a later stack, so only an absent module advances to the next provider (ADR 0054).
+    """
     for module_name in module_names:
-        context = _context_from(module_name)
-        if context is not None:
-            return context
+        result = _context_from(module_name)
+        if result is _ContextOutcome.ABSENT:
+            continue
+        if result is _ContextOutcome.NO_CONTEXT:
+            break
+        return result
     raise RuntimeError(NO_ACTIVE_CONTEXT_MESSAGE_TEMPLATE.format(framework=framework))
 
 
-def _context_from(module_name: str) -> _CommandContextLike | None:
-    """Return the active context on a context-stack module, or None if absent or empty."""
+def _context_from(module_name: str) -> CommandContext | _ContextOutcome:
+    """Return the active context on a context-stack module, or the outcome tag when it yields none."""
     try:
         globals_module = importlib.import_module(module_name)
     except ModuleNotFoundError as error:
         if not _is_missing_module_itself(error, module_name):
             raise
-        return None
+        return _ContextOutcome.ABSENT
     get_current_context = getattr(globals_module, _CURRENT_CONTEXT_ATTRIBUTE, None)
     if get_current_context is None:
-        return None
+        return _ContextOutcome.NO_CONTEXT
     try:
-        return cast("_CommandContextLike", get_current_context())
+        return cast("CommandContext", get_current_context())
     except RuntimeError:
-        return None
+        return _ContextOutcome.NO_CONTEXT
 
 
 def _is_missing_module_itself(error: ModuleNotFoundError, module_name: str) -> bool:
@@ -149,7 +171,7 @@ def _is_missing_module_itself(error: ModuleNotFoundError, module_name: str) -> b
     return module_name == missing or module_name.startswith(f"{missing}.")
 
 
-def _capture_bindings(ctx: _CommandContextLike) -> tuple[RawBinding, ...]:
+def _capture_bindings(ctx: CommandContext) -> tuple[RawBinding, ...]:
     """Snapshot every explicitly-set parameter of the command as a RawBinding (ADR 0027, 0032)."""
     callback_binds = _callback_binds(ctx.command.callback)
     bindings: list[RawBinding] = []
