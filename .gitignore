@@ -42,7 +42,8 @@ build/         # Build artifacts from setuptools/build backends
 htmlcov/       # Coverage HTML reports (default output dir)
 .coverage*     # Coverage data files (default name pattern)
 coverage.*
-tests/results/  # Directory for JUnit/Coverage XML reports (as configured in noxfile)
+# Directory for JUnit/Coverage XML reports (as configured in noxfile)
+tests/results/
 
 # Editor/IDE specific files
 .vscode/       # VS Code settings (if not shared via devcontainer)
@@ -75,3 +76,5 @@ node_modules/
 
 # Release Notes
 body.md
+
+.claude/
